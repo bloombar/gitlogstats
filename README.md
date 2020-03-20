@@ -29,7 +29,7 @@ The script named `git_activity.sh` outputs analytics for a single repository.
 The following code will output the activity of each contributor to a single repository.  Replace my_repository_directory_name with the directory containing a git repository.
 
 ```bash
-./git_activity.sh repos/my_repository_directory_name 3/2/2019 3/11/2019
+./git_activity.sh repos/my_repository_directory_name 3/2/2020 3/11/2020
 ```
 
 ## Words of caution
