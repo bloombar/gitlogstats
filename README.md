@@ -6,7 +6,7 @@ The bash scripts, when run, will iterate through a set of repositories and outpu
 
 ## Assumptions
 
-1. You have cloned this repository to your local machine
+1. You have forked and cloned this repository to your local machine
 1. You have entered a list of repositories you are interested in into the file named `repos.txt` - one repository URL on each line ... see example.
 1. You have granted yourself execute permissions to all bash scripts file, e.g. `chmod u+x *.sh`.
 
@@ -15,13 +15,13 @@ The bash scripts, when run, will iterate through a set of repositories and outpu
 ### Multiple repository analytics
 The script named `do_all.sh` loads an array of the remote URLs of repositories of interest from the file named `repos.txt`.
 
-Let's say you would like to see each contributor's activity to all repositories for the period between March 3rd, 2020 and March 10th, 2020.  
+Let's say you would like to see each contributor's activity to all repositories for **the period between March 3rd, 2020 and March 10th, 2020**.  
 
 ```bash
 ./do_all.sh 3/2/2020 3/11/2020
 ```
 
-Notice that the dates in the command must be one day before and one day after the desired beginning and end dates of interest.
+Notice that the *dates in the command must be one day before and one day after the desired beginning and end dates of interest*.
 
 ### Single repository analytics
 The script named `git_activity.sh` outputs analytics for a single repository.
