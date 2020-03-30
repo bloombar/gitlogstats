@@ -39,8 +39,8 @@ git log --format='%aN' | sort -u | while read user
 do
 	# show each contributor's stats
     printf '%-25s' "- $user -"
-    echo -n $(git log --shortstat --author="$user" --after="$AFTER_DATE" --before="$BEFORE_DATE" -- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" | grep -E "Merge" | awk '{merges+=1} END {printf "merges: %03d | ", merges}')
-    echo -n $(git log --shortstat --author="$user" --after="$AFTER_DATE" --before="$BEFORE_DATE" -- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" | grep -E "fil(e|es) changed" | awk '{commits+=1; files+=$1; inserted+=$4; deleted+=$6} END {printf " commits: %05d | additions: %05d | deletions: %05d | files: %05d", commits, inserted, deleted, files }')
+    echo -n $(git log --shortstat --author="$user" --after="$AFTER_DATE" --before="$BEFORE_DATE" -- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" ":(exclude,glob)**/*.csv" ":(exclude,glob)**/*.json" | grep -E "Merge" | awk '{merges+=1} END {printf "merges: %03d | ", merges}')
+    echo -n $(git log --shortstat --author="$user" --after="$AFTER_DATE" --before="$BEFORE_DATE" -- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" ":(exclude,glob)**/*.csv" ":(exclude,glob)**/*.json" | grep -E "fil(e|es) changed" | awk '{commits+=1; files+=$1; inserted+=$4; deleted+=$6} END {printf " commits: %05d | additions: %05d | deletions: %05d | files: %05d", commits, inserted, deleted, files }')
     echo ""
 
 done
