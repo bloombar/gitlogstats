@@ -1,9 +1,3 @@
-https://github.com/nyu-software-engineering/spring-2020-gifted-hammer.git
-https://github.com/nyu-software-engineering/spring-2020-basic-thunder.git
-https://github.com/nyu-software-engineering/spring-2020-crazy-phoenix.git
-https://github.com/nyu-software-engineering/spring-2020-toxic-flamingo.git
-https://github.com/nyu-software-engineering/spring-2020-idle-tower.git
-https://github.com/nyu-software-engineering/spring-2020-crystal-balboa.git
-https://github.com/nyu-software-engineering/spring-2020-frugal-eye.git
-https://github.com/nyu-software-engineering/spring-2020-cruel-badger.git
-https://github.com/nyu-software-engineering/spring-2020-virtual-volcano.git
+https://github.com/agile-dev-assignments/project-setup-amarillo-paradigm-runnerrand
+https://github.com/agile-dev-assignments/project-setup-bajia-matrix
+https://github.com/agile-dev-assignments/project-setup-pinheiro-encompassing
