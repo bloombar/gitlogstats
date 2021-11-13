@@ -9,6 +9,7 @@ done < repos.txt
 # these dates must be one before and one after the intended date range
 AFTER_DATE=$1
 BEFORE_DATE=$2
+OUTPUT_FILE_NAME=$3
 
 function get_project_name {
 	# split the repository URL by slashes
@@ -26,30 +27,31 @@ function get_project_name {
 # # loop through each repository and clone, if necessary
 # echo ""
 # echo "-- PULLING LATEST CODE FROM REPOSITORIES --"
-# for repo in ${repos[*]}; do
+for repo in ${repos[*]}; do
 
-# 	# call the function to get the repo's directory name
-# 	get_project_name $repo
+	# call the function to get the repo's directory name
+	get_project_name $repo
 
-# 	# check whether the directory already exists
-# 	if [ -d "$DIR_NAME" ]; then
-#     	echo "PROJECT $DIR_NAME..."
-#     	# pull latest from origin
-#     	cd repos/$DIR_NAME
-#     	git pull
-#     	cd ../..
-#     else
-#     	echo "PROJECT $DIR_NAME..."
-#     	# clone repo
-#     	git clone $repo repos/$DIR_NAME
-# 	fi
+	# check whether the directory already exists
+	if [ -d "$DIR_NAME" ]; then
+    	echo "PROJECT $DIR_NAME..."
+    	# pull latest from origin
+    	cd repos/$DIR_NAME
+    	git pull
+    	cd ../..
+    else
+    	echo "PROJECT $DIR_NAME..."
+    	# clone repo
+    	git clone $repo repos/$DIR_NAME
+	fi
 
-# done
+done
 
 # loop through each repository and get contribution stats
 # echo ""
 # echo "-- GETTING CONTRIBUTION STATS FROM REPOSITORIES --"
-echo "username,merges,commits,additions,deletions"
+# echo "" > $OUTPUT_FILE_NAME
+echo "username,merges,commits,additions,deletions" > $OUTPUT_FILE_NAME
 for repo in ${repos[*]}; do
 
 	# call the function to get the repo's directory name
@@ -60,6 +62,6 @@ for repo in ${repos[*]}; do
 	# run bash script to generate stats
 	#echo "./git_activity.sh $DIR_NAME $AFTER_DATE $BEFORE_DATE"
 	# ./git_activity.sh repos/$DIR_NAME $AFTER_DATE $BEFORE_DATE
-	./git_activity_csv.sh repos/$DIR_NAME $AFTER_DATE $BEFORE_DATE
+	./git_activity_csv.sh repos/$DIR_NAME $AFTER_DATE $BEFORE_DATE >> $OUTPUT_FILE_NAME
 
 done

@@ -31,8 +31,9 @@ cd $REPO
 
 # pull latest code from the repo
 echo ""
+# echo "PROJECT $REPO between $AFTER_DATE and $BEFORE_DATE, exclusive"
 echo "\"PROJECT $REPO between $AFTER_DATE and $BEFORE_DATE, exclusive\",,,,"
-git pull >&-
+git pull > /dev/null
 echo ""
 
 
