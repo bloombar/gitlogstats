@@ -67,6 +67,12 @@ Output the contributions of only the contributor named `bloombar` to a single re
 ./git-analysis.py -u bloombar -r https://github.com/bloombar/git-developer-contribution-analysis.git
 ```
 
+The same, but to a batch of repositories listed in the `repos.txt` file:
+
+```
+./git-analysis.py -u bloombar -rf repos.txt
+```
+
 ### Custom date range
 
 By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively.
@@ -75,6 +81,26 @@ Output the contributions to a single repository for a specific date range, inclu
 
 ```bash
 ./git-analysis.py -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git
+```
+
+The same, but to a batch of repositories listed in the `repos.txt` file:
+
+```
+./git-analysis.py -s 11/15/2021 -e 12/15/2021 -rf repos.txt
+```
+
+### Combinations
+
+Flags can be combined to provide more targeted analysis, e.g. a specific contributor over a specific date range
+
+```
+./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git
+```
+
+The same, but to a batch of repositories listed in the `repos.txt` file:
+
+```
+./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 ```
 
 ## Words of caution
