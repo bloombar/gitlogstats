@@ -1,46 +1,92 @@
 # Git Developer Contributions Analysis
 
-This repository contains tools to track individuals' contributions to a set of GitHub repositories within a particular time range.  GitHub's own Insights tools and charts are not extremely useful, and often omit contributors or give misleading statistics.
+This repository contains a command-line tool, written in `python`, to track developers' contributions to one or more Git repositories within a particular time range. GitHub's Insights tools and charts are not extremely useful, and often omit contributors or give misleading statistics.
 
-The bash scripts, when run, will iterate through a set of repositories and output the number of merges, commits, lines added and deleted, and files changed by each contributor to the repositories.
+This script calculates the following, for each developer in each repository:
 
-## Assumptions
+- number of **merges**
+- number of **commits**
+- number of **lines added**
+- number of **lines deleted**
+- number of **files changed**
 
-1. You have forked and cloned this repository to your local machine
-1. You have entered a list of repositories you are interested in into the file named `repos.txt` - one repository URL on each line ... see example.
-1. You have granted yourself execute permissions to all bash scripts file, e.g. `chmod u+x *.sh`.
+## Running the program
+
+1. Fork this repository and clone it to your local machine
+1. Grant yourself execute permissions to the `python` script, e.g. `chmod u+x *.py`.
+
+## Usage
+
+The command `./git-activity.py --help` shows the usage instructions:
+
+```
+usage: git-analysis.py [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-v]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -r REPOSITORY, --repository REPOSITORY
+                        the public URL of the repository whose logs to parse
+  -rf REPOFILE, --repofile REPOFILE
+                        the path to simple text file with a list of repository URLs to parse
+  -u USER, --user USER  The git username to report. Default is all contributing users
+  -s START, --start START
+                        Start date in mm/dd/yyyy format
+  -e END, --end END     End date in mm/dd/yyyy format
+  -x EXCLUSIONS, --exclusions EXCLUSIONS
+                        A comma-separated string of files to exclude, e.g. --excusions "foo.zip, *.jpg, *.json"
+  -f {csv,json,markdown}, --format {csv,json,markdown}
+                        The format in which to output the results
+  -v, --verbose         Whether to output debugging info
+```
 
 ## Example usage
 
-### Multiple repository analytics
-The script named `do_all.sh` loads an array of the remote URLs of repositories of interest from the file named `repos.txt`.
+### Single versus multiple repository analytics
 
-Let's say you would like to see each contributor's activity to all repositories for **the period between March 3rd, 2020 and March 10th, 2020**.  
+The `-r` and `-rf` flags control whether the script looks at a single repository, or a batch of repositories stored in a simple text file.
+
+Output the contributions of all developers to a single repository:
 
 ```bash
-./do_all.sh 3/2/2020 3/11/2020
+./git-analysis.py -r https://github.com/bloombar/git-developer-contribution-analysis.git
 ```
 
-Notice that the *dates in the command must be one day before and one day after the desired beginning and end dates of interest*.
-
-### Single repository analytics
-The script named `git_activity.sh` outputs analytics for a single repository.
-
-The following code will output the activity of each contributor to a single repository.  Replace my_repository_directory_name with the directory containing a git repository.
+Output the contributions of all developers to a set of repositories stored in a file named `repos.txt` (see [example file](./repos.txt)):
 
 ```bash
-./git_activity.sh repos/my_repository_directory_name 3/2/2020 3/11/2020
+./git-analysis.py -rf repos.txt
+```
+
+### Individual contributor versus all contributors
+
+By default, the statistics of all contributors are calculated. The `-u` flag can be used to limit the analysis to just a single contributor by referencing their git username.
+
+Output the contributions of only the contributor named `bloombar` to a single repository:
+
+```bash
+./git-analysis.py -u bloombar -r https://github.com/bloombar/git-developer-contribution-analysis.git
+```
+
+### Custom date range
+
+By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively.
+
+Output the contributions to a single repository for a specific date range, inclusive.
+
+```bash
+./git-analysis.py -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git
 ```
 
 ## Words of caution
 
 ### Large numbers of additions or deletions
-If a particular user shows a very large number of additions or deletions, typically on the order of many hundreds or thousands, this could be a sign of poor usage of version control.
 
-Most likely, the user has failed to update their version control settings to ignore platform or 3rd party code to (i.e. has not updated their `.gitignore` file prior to adding such code), and is therefore tracking additions/deletions of code that is not theirs.  The entire contribution for that user during this date range should be ignored in this case until the developer fixes this problem.
+If a particular contricutor shows a very large number of additions or deletions, typically on the order of many hundreds or thousands, this could be a sign of poor usage of version control.
 
-### Redundant usernames 
-The output of the script sometimes lists the same individual contributor under more than one git username...  This is most likely due to different username settings for various git and GitHub clients.
+Most likely, the contributor has failed to update their version control settings to ignore platform or 3rd party code to (i.e. has not updated their `.gitignore` file prior to adding such code), and is therefore tracking additions/deletions of code that is not theirs. The entire contribution for that user during this date range should be ignored in this case until the developer fixes this problem.
 
-If a single developer has multiple usernames that all show the same statistics, then only count those stats once.  Otherwise, if a single developer has multiple usernames that show different statistics, then add them together to come up with the total for that developer.
+### Redundant usernames
 
+The output of the script sometimes lists the same individual contributor under more than one git username... This is most likely due to different username settings for various git and GitHub clients.
+
+If a single developer has multiple usernames that all show the same statistics, then only count those stats once. Otherwise, if a single developer has multiple usernames that show different statistics, then add them together to come up with the total for that developer.
