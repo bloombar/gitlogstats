@@ -10,6 +10,8 @@ This script calculates the following, for each developer in each repository:
 - number of **lines deleted**
 - number of **files changed**
 
+The results can be formatted as `csv`, `json`, or `markdown`.
+
 ## Running the program
 
 1. Fork this repository and clone it to your local machine
@@ -89,18 +91,26 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 ./git-analysis.py -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 ```
 
+### Formatting the results
+
+The results can be formatted as `csv`, `json`, or a `markdown` table. The default is `csv`. Use the `-f` flag to control the output format.
+
+```
+./git-analysis.py -s 11/15/2021 -e 12/15/2021 -rf repos.txt -f markdown
+```
+
 ### Combinations
 
 Flags can be combined to provide more targeted analysis, e.g. a specific contributor over a specific date range
 
 ```
-./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git
+./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git -f json
 ```
 
 The same, but to a batch of repositories listed in the `repos.txt` file:
 
 ```
-./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -rf repos.txt
+./git-analysis.py -u bloombar -s 11/15/2021 -e 12/15/2021 -rf repos.txt -f json
 ```
 
 ## Words of caution
