@@ -79,9 +79,9 @@ class GitLogsParser:
                 'end_date': self.end,
                 'merges': len(re.findall('Merge branch', logs)), # number of times we find a merge message
                 'commits': len(re.findall('commit [a-z0-9]+\n', logs)), # number of times we find a commit message
-                'files': 0,
                 'insertions': 0,
-                'deletions': 0
+                'deletions': 0,
+                'files': 0
             }
             # find all number of files changed, lines inserted, lines deleted:
             pattern = re.compile('(\d*) files? changed.* (\d*) insertions?.* (\d*) deletions?.*\n')
