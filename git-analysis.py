@@ -77,8 +77,8 @@ class GitLogsParser:
                 'repository': self.repo_name_from_url(self.repository),
                 'start_date': self.start,
                 'end_date': self.end,
-                'commits': len(re.findall('commit [a-z0-9]+\n', logs)), # number of times we find a commit message
                 'merges': len(re.findall('Merge branch', logs)), # number of times we find a merge message
+                'commits': len(re.findall('commit [a-z0-9]+\n', logs)), # number of times we find a commit message
                 'files': 0,
                 'insertions': 0,
                 'deletions': 0
