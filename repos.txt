@@ -19,3 +19,4 @@ https://github.com/software-students-fall2021/project-setup-potluck
 https://github.com/software-students-fall2021/project-setup-jeff-barbieri
 https://github.com/software-students-fall2021/project-setup-dyor
 https://github.com/software-students-fall2021/project-setup-xinhua-coherent-compfood
+https://github.com/software-students-fall2021/rokietnica-logistical-app
