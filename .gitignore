@@ -1,6 +1,9 @@
 # ignore any cloned repos
 repos/
 
+# ignore generated reports
+reports/
+
 # ignore virtual environments
 .venv
 
