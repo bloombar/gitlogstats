@@ -93,7 +93,7 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 
 ### Filter Contributors
 
-The result can be filter to contributors with activity. Use the `-c` to file the result.
+Results can be filter to contributors with activity. Use the `-c` to file the result.
 
 ```
 ./git-analysis.py -rf repos.txt -c
