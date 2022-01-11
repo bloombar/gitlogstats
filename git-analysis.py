@@ -12,6 +12,7 @@ class GitLogsParser:
         @param username: an optional username of interest.  if not present, we report all contributing users
         @param exclusions: a list of files to exclude from analysis.  wild cards accepted, e.g. ['foo.csv', '*.zip', '*.jpg']
         @param verbose: whether to output debugging info.  defaults to False.
+        @param clean: remove contributors without any contribuition.  defaults to False.
         """
 
         self.repository = repo
@@ -217,7 +218,7 @@ if __name__ == "__main__":
             os.chdir(repo_dir) # navigate into this repository's directory
             subprocess.run(['git', 'pull'], capture_output=True) # clone the code from github
 
-        git_logs_parser = GitLogsParser(repo=repo_dir, start=args.start, end=args.end, username=args.user, verbose=args.verbose)
+        git_logs_parser = GitLogsParser(repo=repo_dir, start=args.start, end=args.end, username=args.user, verbose=args.verbose, clean=args.clean)
         results = git_logs_parser.parse()
         output = git_logs_parser.format_results(results, args.format)
         print(output)
