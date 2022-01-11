@@ -3,7 +3,7 @@
 import os, sys, subprocess, argparse, datetime, shlex, re
 
 class GitLogsParser:
-    def __init__(self, repo, start, end, username, exclusions=[], repofile=None, verbose=False):
+    def __init__(self, repo, start, end, username, exclusions=[], repofile=None, verbose=False, clean=False):
         """
         Initialize the git logs parser for a given repository
         @param repo: the path to the repository of interest.
@@ -21,6 +21,7 @@ class GitLogsParser:
         self.username = username
         self.exclusions = exclusions
         self.verbose = verbose
+        self.clean = clean
 
         # go into the selected repository directory, if any
         if self.repository:
@@ -91,7 +92,10 @@ class GitLogsParser:
                 entry['insertions'] += int(match.group(2))
                 entry['deletions'] += int(match.group(3))
             # add this user's stats to the list
-            stats.append(entry)
+            if(self.clean and (entry['merges'] == 0 and entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
+                pass
+            else:
+                stats.append(entry)
             # self.verboseprint('Entry: ', entry) # only printed when in verbose mode
         return stats
 
@@ -176,6 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--exclusions", help='A comma-separated string of files to exclude, e.g. --excusions "foo.zip, *.jpg, *.json" ', default=','.join(exclusions))
     parser.add_argument("-f", "--format", help="The format in which to output the results", default='csv', choices=['csv', 'json', 'markdown'])
     parser.add_argument("-v", "--verbose", help="Whether to output debugging info", default=False, action="store_true")
+    parser.add_argument("-c", "--clean", help="Remove contributors without any contribuition", default=False, action="store_true")
     args = parser.parse_args()
 
 
