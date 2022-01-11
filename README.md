@@ -91,6 +91,13 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 ./git-analysis.py -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 ```
 
+### Filter Contributors
+
+The result can be filter to contributors with activity. Use the `-c` to file the result.
+
+```
+./git-analysis.py -rf repos.txt -c
+```
 ### Formatting the results
 
 The results can be formatted as `csv`, `json`, or a `markdown` table. The default is `csv`. Use the `-f` flag to control the output format.
