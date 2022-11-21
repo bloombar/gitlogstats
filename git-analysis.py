@@ -26,7 +26,7 @@ class GitLogsParser:
 
         # go into the selected repository directory, if any
         if self.repository:
-            self.verboseprint('Switching to: {}...'.format(self.repository))
+            self.verboseprint(f'Switching to: {self.repository}...')
             os.chdir(self.repository)
         
     def get_contributors(self):
@@ -68,8 +68,8 @@ class GitLogsParser:
         for contributor in contributors:
             exclusions = '-- . ' + ' '.join(['":(exclude,glob)**/{}"'.format(x) for x in self.exclusions]) # put the exclusions in the format git logs uses
             # exclusions = r'''-- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" ":(exclude,glob)**/*.csv" ":(exclude,glob)**/*.json" '''
-            cmd = 'git log --shortstat --author="{contributor}" --after="{start}" --before="{end}" {exclusions}'.format(contributor=contributor, start=git_start_date, end=git_end_date, exclusions=exclusions)
-            self.verboseprint('Running command: {}...'.format(cmd))
+            cmd = f'git log --shortstat --author="{contributor}" --after="{git_start_date}" --before="{git_end_date}" {exclusions}'
+            self.verboseprint(f'Running command: {cmd}...')
             cmd = shlex.split(cmd) # split command by spaces, except where in quotes
             result = subprocess.run(cmd, capture_output=True) # run the command
             logs = result.stdout.decode('utf-8') # capture the output
@@ -79,8 +79,7 @@ class GitLogsParser:
                 'repository': self.repo_name_from_url(self.repository),
                 'start_date': self.start,
                 'end_date': self.end,
-                'merges (branch)': len(re.findall('Merge branch', logs)), # number of times we find a merge message
-                'merges (non-branch)': len(re.findall('Merge:', logs)), # number of times we find a merge message
+                # 'merges': len(re.findall('Merge', logs)), # number of times we find a merge message... git logs do not reliably show these
                 'commits': len(re.findall('commit [a-z0-9]+\n', logs)), # number of times we find a commit message
                 'insertions': 0,
                 'deletions': 0,
@@ -107,7 +106,7 @@ class GitLogsParser:
         @param results: A list of dictionaries, with each representing a contributor to the repository.
         @param format: The desired output format, e.g. 'csv', 'json', or 'markdown'
         """
-        self.verboseprint('Outputting results in {} format:...'.format(format.upper()))
+        self.verboseprint(f'Outputting results in {format.upper()} format:...')
         output = ''
         # output in the selected format
         if format == 'csv':
