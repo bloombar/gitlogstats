@@ -1,7 +1,0 @@
-https://github.com/software-students-fall2021/project-setup-julia
-https://github.com/software-students-fall2021/project-setup-eventedge
-https://github.com/software-students-fall2021/project-setup-foodwithfriends
-https://github.com/software-students-fall2021/project-setup-gotnotes
-https://github.com/software-students-fall2021/project-setup-nick-wang
-https://github.com/software-students-fall2021/project-setup-beizhang-discrete
-https://github.com/software-students-fall2021/project-setup-new_team
