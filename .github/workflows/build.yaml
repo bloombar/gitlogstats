@@ -38,6 +38,7 @@ jobs:
           pipenv install
       - name: Build package
         run: |
+          pipenv install build
           pipenv run python -m build .
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
