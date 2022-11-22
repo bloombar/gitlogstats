@@ -27,6 +27,8 @@ jobs:
           pipenv install -e .
   deliver:
     needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
