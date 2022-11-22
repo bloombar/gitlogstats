@@ -11,11 +11,6 @@ This script calculates the following, for each developer in each repository:
 
 The results can be formatted as `csv`, `json`, or `markdown`.
 
-## Running the program
-
-1. Fork this repository and clone it to your local machine
-1. Grant yourself execute permissions to the `python` script, e.g. `chmod u+x *.py`.
-
 ## Install
 
 `gitlogstats` can be installed with a package manager such as `pip`
