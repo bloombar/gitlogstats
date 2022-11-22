@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name="Foo Barstein", email="foo.barstein@onepotcooking.com" },
 ]
@@ -29,4 +29,4 @@ dev = ["pytest"]
 "Bug Tracker" = "https://github.com/bloombar/git-developer-contribution-analysis/issues"
 
 [project.scripts]
-analyze = "GitLogsParser.__main__:main"
+gitlogstats = "gitlogstats.__main__:main"

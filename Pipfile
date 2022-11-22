@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+build = "*"
+pytest = "*"
+twine = "*"
+urllib3 = "*"
+requests = "*"
+gitlogstats = {editable = true, path = "."}
+
+[dev-packages]
+
+[requires]
+python_version = "3"
