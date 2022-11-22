@@ -1,4 +1,4 @@
-![build](https://github.com/bloombar/github-developer-contribution-analysis/actions/workflows/build.yaml/badge.svg)
+![build](https://github.com/bloombar/git-developer-contribution-analysis/actions/workflows/build.yaml/badge.svg)
 
 # Git Developer Contributions Analysis
 
