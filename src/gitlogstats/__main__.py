@@ -1,4 +1,5 @@
 import os, subprocess, argparse, datetime, re
+from .GitLogsParser import GitLogsParser
 
 def main():
   '''
@@ -11,7 +12,7 @@ def main():
   str_last_year = last_year.strftime("%m/%d/%Y")
 
   # default files to exclude from analysis
-  exclusions = ['package-lock.json', '*.jpg', '*.png', '*.gif', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.csv', '*.json']
+  exclusions = ['package.json', 'package-lock.json', 'Pipfile', 'Pipfile.lock', 'requirements.txt', '*.jpg', '*.png', '*.gif', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.csv', '*.json']
 
   # get the command-line arguments
   parser = argparse.ArgumentParser()
