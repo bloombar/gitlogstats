@@ -23,7 +23,7 @@ __pycache__/
 *.so
 
 # PyPI authentication
-.*pypi.rc
+.*pypirc
 
 # Distribution / packaging
 .Python
