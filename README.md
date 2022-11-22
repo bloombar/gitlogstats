@@ -1,3 +1,5 @@
+![build](https://github.com/bloombar/github-developer-contribution-analysis/actions/workflows/build.yaml/badge.svg)
+
 # Git Developer Contributions Analysis
 
 This repository contains a command-line tool, `gitlogstats`, written in `python`, to track developers' contributions to one or more Git repositories within a particular time range. GitHub's Insights tools and charts are not extremely useful, and often omit contributors or give misleading statistics.
