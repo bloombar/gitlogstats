@@ -69,7 +69,8 @@ class GitLogsParser:
             exclusions = '-- . ' + ' '.join(['":(exclude,glob)**/{}"'.format(x) for x in self.exclusions]) # put the exclusions in the format git logs uses
             # exclusions = r'''-- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" ":(exclude,glob)**/*.csv" ":(exclude,glob)**/*.json" '''
             cmd = f'git log --shortstat --author="{contributor}" --after="{git_start_date}" --before="{git_end_date}" {exclusions}'
-            self.verboseprint(f'Running command: {cmd}...')
+            self.verboseprint(f'Running command: {cmd}')
+            # self.verboseprint(f'With exclusions: {exclusions}')
             cmd = shlex.split(cmd) # split command by spaces, except where in quotes
             result = subprocess.run(cmd, capture_output=True) # run the command
             logs = result.stdout.decode('utf-8') # capture the output
