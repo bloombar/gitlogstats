@@ -41,6 +41,7 @@ optional arguments:
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
   -v, --verbose         Whether to output debugging info
+  -c, --clean           Remove contributors without any contribuition
 ```
 
 In case `gitlogstats` is not found as a command, even after installing, try `python -m gitlogstats` or `python3 -m gitlogstats` instead.
