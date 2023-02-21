@@ -31,7 +31,7 @@ def main():
 
   # fix up exclusions
   args.exclusions = re.split(r',\s*', args.exclusions) # split up comma-separated string into list
-  # print(exclusions)
+#   print(f'Exclusions: {args.exclusions}')
 
   # deal with repofile, if specified
   repository_urls = [args.repository]
@@ -62,7 +62,7 @@ def main():
           os.chdir(repo_dir) # navigate into this repository's directory
           subprocess.run(['git', 'pull'], capture_output=True) # clone the code from github
 
-      git_logs_parser = GitLogsParser(repo=repo_dir, start=args.start, end=args.end, username=args.user, verbose=args.verbose, clean=args.clean)
+      git_logs_parser = GitLogsParser(repo=repo_dir, start=args.start, end=args.end, username=args.user, exclusions=args.exclusions, verbose=args.verbose, clean=args.clean)
       results = git_logs_parser.parse()
       output = git_logs_parser.format_results(results, args.format)
       print(output)
