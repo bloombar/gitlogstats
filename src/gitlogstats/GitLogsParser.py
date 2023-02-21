@@ -86,12 +86,12 @@ class GitLogsParser:
                 'files': 0
             }
             # find all number of files changed, lines inserted, lines deleted:
-            pattern = re.compile('(\d*) files? changed.* (\d*) insertions?.* (\d*) deletions?.*\n')
+            pattern = re.compile(r"commit ([a-zA-Z0-9]+).*\nAuthor:\s(.*)\s<((.*))>.*\nDate:\s(.*)\n\n(.*)\n\n(.*?(\d+) file[s]? changed)?(.*?(\d+) insertion[s]?)?(.*?(\d+) deletion[s]?)?")
             for match in re.finditer(pattern, logs):
                 # print(str(match.groups()))
-                entry['files'] += int(match.group(1))
-                entry['insertions'] += int(match.group(2))
-                entry['deletions'] += int(match.group(3))
+                entry['files'] += int(match.group(8)) if match.group(8) else 0
+                entry['insertions'] += int(match.group(10)) if match.group(10) else 0
+                entry['deletions'] += int(match.group(12)) if match.group(12) else 0
             # add this user's stats to the list
             if(self.clean and (entry['merges'] == 0 and entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
                 pass
