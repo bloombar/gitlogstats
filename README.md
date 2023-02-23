@@ -24,7 +24,7 @@ e.g. `pip install gitlogstats`, `pip3 install gitlogstats`, depending on your en
 The command `gitlogstats --help` shows the usage instructions:
 
 ```
-usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-v]
+usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-v] [-c]
 
 optional arguments:
   -h, --help            show this help message and exit
