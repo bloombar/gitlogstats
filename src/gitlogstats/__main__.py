@@ -25,7 +25,7 @@ def main():
   parser.add_argument("-x", "--exclusions", help='A comma-separated string of files to exclude, e.g. --excusions "foo.zip, *.jpg, *.json" ', default=','.join(exclusions))
   parser.add_argument("-f", "--format", help="The format in which to output the results", default='csv', choices=['csv', 'json', 'markdown'])
   parser.add_argument("-v", "--verbose", help="Whether to output debugging info", default=False, action="store_true")
-  parser.add_argument("-c", "--clean", help="Remove contributors without any contribuition", default=False, action="store_true")
+  parser.add_argument("-c", "--clean", help="Remove contributors without any contribuition", default=True, action="store_true")
   args = parser.parse_args()
 
 
