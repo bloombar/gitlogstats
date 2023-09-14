@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
-version = "1.0.2"
+version = "1.0.3"
 authors = [
   { name="Foo Barstein", email="foo.barstein@onepotcooking.com" },
 ]
