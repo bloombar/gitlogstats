@@ -94,7 +94,9 @@ class GitLogsParser:
                 entry['insertions'] += int(match.group(10)) if match.group(10) else 0
                 entry['deletions'] += int(match.group(12)) if match.group(12) else 0
             # add this user's stats to the list
-            if(self.clean and (entry['merges'] == 0 and entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
+            # removing merges since they are not reliably mentioned in the stats
+            # if(self.clean and (entry['merges'] == 0 and entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
+            if(self.clean and (entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
                 pass
             else:
                 stats.append(entry)
