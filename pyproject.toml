@@ -7,7 +7,7 @@ name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
 version = "1.0.4"
 authors = [
-  { name="Foo Barstein", email="foo.barstein@onepotcooking.com" },
+  { name="Tobody Tothing", email="nobody.nothing@nowhere.com" },
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
