@@ -17,7 +17,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --user pipenv
-          pipenv --python python install --dev
+          pipenv --python python sync --dev
       - name: Build package
         run: |
           pipenv run python -m build .
