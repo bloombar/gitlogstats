@@ -13,4 +13,4 @@ pytest = "*"
 pytest-cov = "*"
 
 [requires]
-python_version = "3"
+python_full_version = ">=3.9"
