@@ -3,7 +3,7 @@ import subprocess
 import argparse
 import datetime
 import re
-from .GitLogsParser import GitLogsParser
+from . import GitLogsParser
 
 
 def main():
@@ -113,7 +113,9 @@ def main():
     if not os.path.exists(repos_dir):
         os.makedirs(repos_dir)
 
-    # loop through each git repository url
+    # loop through each git repository url, accumulating all results
+    all_results = []
+    last_parser = None
     for repo_url in repository_urls:
         os.chdir(repos_dir)  # start from the parent directory of all repos
         # code = subprocess.run(['pwd']) # check the directory
@@ -136,7 +138,7 @@ def main():
                 ["git", "pull"], capture_output=True, check=True
             )  # clone the code from github
 
-        git_logs_parser = GitLogsParser(
+        last_parser = GitLogsParser(
             repo=repo_dir,
             start=args.start,
             end=args.end,
@@ -145,9 +147,15 @@ def main():
             verbose=args.verbose,
             clean=args.clean,
         )
-        results = git_logs_parser.parse()
-        output = git_logs_parser.format_results(results, args.format)
-        print(output)
+        results = last_parser.parse()
+
+        if args.format == "json":
+            all_results.extend(results)  # collect across repos; emit one valid JSON array
+        else:
+            print(last_parser.format_results(results, args.format))
+
+    if args.format == "json" and last_parser is not None:
+        print(last_parser.format_results(all_results, "json"))
 
 
 # if this script is being run directly...

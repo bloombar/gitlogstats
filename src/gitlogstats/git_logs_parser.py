@@ -19,7 +19,7 @@ class GitLogsParser:
         start,
         end,
         username,
-        exclusions=[],
+        exclusions=None,
         repofile=None,
         verbose=False,
         clean=False,
@@ -40,7 +40,7 @@ class GitLogsParser:
         self.start = start
         self.end = end
         self.username = username
-        self.exclusions = exclusions
+        self.exclusions = exclusions if exclusions is not None else []
         self.verbose = verbose
         self.clean = clean
 
