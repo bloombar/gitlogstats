@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
-version = "1.0.4"
+version = "1.0.5"
 authors = [
   { name="Tobody Tothing", email="nobody.nothing@nowhere.com" },
 ]
@@ -21,7 +21,18 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pytest-cov", "build", "twine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/gitlogstats"]
+omit = ["src/gitlogstats/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
 
 [project.urls]
 "Homepage" = "https://github.com/bloombar/git-developer-contribution-analysis"

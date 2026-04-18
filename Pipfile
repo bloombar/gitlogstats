@@ -4,14 +4,13 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-build = "*"
-pytest = "*"
-twine = "*"
-urllib3 = "*"
-requests = "*"
 gitlogstats = {editable = true, path = "."}
 
 [dev-packages]
+build = "*"
+twine = "*"
+pytest = "*"
+pytest-cov = "*"
 
 [requires]
-python_version = "3"
+python_version = "3.7"
