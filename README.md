@@ -24,7 +24,7 @@ e.g. `pip install gitlogstats`, `pip3 install gitlogstats`, depending on your en
 The command `gitlogstats --help` shows the usage instructions:
 
 ```
-usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-v] [-c]
+usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-b BRANCH] [-v] [-c]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -40,6 +40,8 @@ optional arguments:
                         A comma-separated string of files to exclude, e.g. --excusions "foo.zip, *.jpg, *.json"
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
+  -b BRANCH, --branch BRANCH
+                        The branch to checkout before compiling statistics. Defaults to the repository's default branch.
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
 ```
