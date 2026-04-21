@@ -76,6 +76,12 @@ def main():
         choices=["csv", "json", "markdown"],
     )
     parser.add_argument(
+        "-b",
+        "--branch",
+        help="The branch to parse, if not the default branch",
+        default=None,
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         help="Whether to output debugging info",
@@ -138,6 +144,11 @@ def main():
                 ["git", "pull"], capture_output=True, check=True
             )  # clone the code from github
 
+        if args.branch:
+            subprocess.run(
+                ["git", "checkout", args.branch], capture_output=True, check=True
+            )
+
         last_parser = GitLogsParser(
             repo=repo_dir,
             start=args.start,
@@ -150,7 +161,9 @@ def main():
         results = last_parser.parse()
 
         if args.format == "json":
-            all_results.extend(results)  # collect across repos; emit one valid JSON array
+            all_results.extend(
+                results
+            )  # collect across repos; emit one valid JSON array
         else:
             print(last_parser.format_results(results, args.format))
 
