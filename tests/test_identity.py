@@ -6,9 +6,10 @@ All names, emails and logins here are invented.
 import copy
 
 from gitlogstats.git_logs_parser import FIELDNAMES
-from gitlogstats.github import GITHUB_FIELDNAMES
+from gitlogstats.github import EMAIL_FIELDNAMES, GITHUB_FIELDNAMES
 from gitlogstats.identity import (
     consolidate,
+    join_emails,
     login_from_noreply,
     match_identities,
     normalize_display_name,
@@ -295,7 +296,7 @@ def test_consolidate_sums_and_picks_busiest_username():
         git_row("Zed Full", commits=7, insertions=100, deletions=20, files=9, merges=3),
     ]
     matches = {"zed": ("zhub", "email"), "Zed Full": ("ZHUB", "username")}
-    out = consolidate(rows, matches, {"zhub": pr(4, 3, 1, 2)}, "repo", "s", "e")
+    out = consolidate(rows, matches, {"zhub": pr(4, 3, 1, 2)}, "repo", "s", "e", {}, {})
     assert [r["username"] for r in out] == ["Zed Full", "Alone"]
     merged = out[0]
     assert merged["commits"] == 9
@@ -316,7 +317,7 @@ def test_consolidate_sums_and_picks_busiest_username():
 def test_consolidate_tie_broken_alphabetically():
     rows = [git_row("beta", commits=3), git_row("alpha", commits=3)]
     matches = {"beta": ("u", "email"), "alpha": ("u", "email")}
-    out = consolidate(rows, matches, {}, "repo", "s", "e")
+    out = consolidate(rows, matches, {}, "repo", "s", "e", {}, {})
     assert len(out) == 1
     assert out[0]["username"] == "alpha"
     assert out[0]["commits"] == 6
@@ -325,15 +326,15 @@ def test_consolidate_tie_broken_alphabetically():
 def test_consolidate_position_of_first_member():
     rows = [git_row("a"), git_row("b"), git_row("c"), git_row("d")]
     matches = {"a": ("one", "email"), "c": ("one", "email")}
-    out = consolidate(rows, matches, {}, "repo", "s", "e")
+    out = consolidate(rows, matches, {}, "repo", "s", "e", {}, {})
     assert [r["username"] for r in out] == ["a", "b", "d"]
     assert out[0]["commits"] == 2
 
 
 def test_consolidate_column_order_and_zero_counts():
     rows = [git_row("a")]
-    out = consolidate(rows, {"a": ("ahub", "email")}, {}, "repo", "s", "e")
-    assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES
+    out = consolidate(rows, {"a": ("ahub", "email")}, {}, "repo", "s", "e", {}, {})
+    assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
     assert out[0]["github_username"] == "ahub"
     assert out[0]["prs_opened"] == out[0]["prs_merged"] == 0
     assert out[0]["prs_self_merged"] == 0
@@ -342,7 +343,7 @@ def test_consolidate_column_order_and_zero_counts():
 def test_consolidate_github_only_rows_sorted_after_git_rows():
     rows = [git_row("a")]
     counts = {"Zed": pr(1), "ahub": pr(2, 1), "bob": pr(0, 1, 3, 1)}
-    out = consolidate(rows, {"a": ("AHUB", "email")}, counts, "repo", "S", "E")
+    out = consolidate(rows, {"a": ("AHUB", "email")}, counts, "repo", "S", "E", {}, {})
     assert [r["github_username"] for r in out] == ["AHUB", "bob", "Zed"]
     assert out[0]["prs_opened"] == 2
     only = out[1]
@@ -357,7 +358,7 @@ def test_consolidate_github_only_rows_sorted_after_git_rows():
     for field in ["commits", "insertions", "deletions", "files", "merges"]:
         assert only[field] == 0
     for r in out:
-        assert list(r) == FIELDNAMES + GITHUB_FIELDNAMES
+        assert list(r) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
 
 
 def test_consolidate_does_not_mutate_inputs():
@@ -365,14 +366,68 @@ def test_consolidate_does_not_mutate_inputs():
     matches = {"a": ("u", "email"), "b": ("u", "email")}
     counts = {"u": pr(1), "v": pr(2)}
     before = copy.deepcopy((rows, matches, counts))
-    consolidate(rows, matches, counts, "repo", "s", "e")
+    consolidate(rows, matches, counts, "repo", "s", "e", {}, {})
     assert (rows, matches, counts) == before
 
 
 def test_unavailable_row():
     row = git_row("a")
     out = unavailable_row(row)
-    assert list(out) == FIELDNAMES + GITHUB_FIELDNAMES
+    assert list(out) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
     assert all(out[f] is None for f in GITHUB_FIELDNAMES)
+    assert out["git_email"] == ""
+    assert out["github_email"] is None
     assert out["commits"] == 1
     assert "github_username" not in row
+
+
+def test_unavailable_row_keeps_git_emails():
+    out = unavailable_row(git_row("a"), {"b@x.example", "A@x.example"})
+    assert out["git_email"] == "A@x.example; b@x.example"
+    assert out["github_email"] is None
+    assert out["github_username"] is None
+
+
+# ---- emails (STAT-13) ---------------------------------------------------------
+
+
+def test_join_emails_sorts_ignoring_case_and_dedupes_ignoring_case():
+    emails = ["zed@x.example", "ada@x.example", "Ada@x.example", "", "Bob@x.example"]
+    assert join_emails(emails) == "Ada@x.example; Bob@x.example; zed@x.example"
+    assert join_emails([]) == ""
+
+
+def test_consolidate_emails_of_a_combined_row():
+    rows = [git_row("ada"), git_row("Ada L", commits=5), git_row("solo")]
+    matches = {"ada": ("ahub", "email"), "Ada L": ("AHUB", "username")}
+    identities = {
+        "ada": {"ada@x.example": "1"},
+        "Ada L": {"Ada@x.example": "2", "9+ahub@users.noreply.github.com": "3"},
+        "solo": {"solo@x.example": "4"},
+    }
+    out = consolidate(
+        rows, matches, {}, "repo", "s", "e", identities, {"ahub": "pub@x.example"}
+    )
+    assert [r["git_email"] for r in out] == [
+        "9+ahub@users.noreply.github.com; Ada@x.example",
+        "solo@x.example",
+    ]
+    assert [r["github_email"] for r in out] == ["pub@x.example", ""]
+
+
+def test_consolidate_github_only_row_has_no_git_email():
+    out = consolidate(
+        [],
+        {},
+        {"Zed": pr(1), "bob": pr(1)},
+        "repo",
+        "s",
+        "e",
+        {},
+        {"zed": "zed@x.example", "bob": None},
+    )
+    assert [(r["github_username"], r["git_email"], r["github_email"]) for r in out] == [
+        ("bob", "", ""),
+        ("Zed", "", "zed@x.example"),
+    ]
+    assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES

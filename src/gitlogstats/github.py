@@ -21,6 +21,9 @@ GITHUB_FIELDNAMES = [
     "prs_self_merged",
 ]
 
+# STAT-13: the email columns that follow the pull-request columns
+EMAIL_FIELDNAMES = ["git_email", "github_email"]
+
 # CLI-3: the two user-facing messages, verbatim from the SPEC
 GH_NOT_INSTALLED = (
     "gitlogstats: --github needs the GitHub CLI (gh), which is not installed. "
