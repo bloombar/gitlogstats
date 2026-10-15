@@ -1,4 +1,4 @@
-![build](https://github.com/bloombar/git-developer-contribution-analysis/actions/workflows/build.yaml/badge.svg)
+![build](https://github.com/bloombar/gitlogstats/actions/workflows/build.yaml/badge.svg)
 
 # Git Developer Contributions Analysis
 
@@ -57,7 +57,7 @@ The `-r` and `-rf` flags control whether the script looks at a single repository
 Output the contributions of all developers to a single repository:
 
 ```bash
-gitlogstats -r https://github.com/bloombar/git-developer-contribution-analysis.git
+gitlogstats -r https://github.com/bloombar/gitlogstats.git
 ```
 
 Output the contributions of all developers to a set of repositories stored in a file named `repos.txt`, one URL per line (see [example file](./repos.txt)). Blank lines and lines starting with `#` are ignored. The results for all repositories are combined into a single table:
@@ -73,7 +73,7 @@ By default, the statistics of all contributors are calculated. The `-u` flag can
 Output the contributions of only the contributor named `bloombar` to a single repository:
 
 ```bash
-gitlogstats -u bloombar -r https://github.com/bloombar/git-developer-contribution-analysis.git
+gitlogstats -u bloombar -r https://github.com/bloombar/gitlogstats.git
 ```
 
 The same, but to a batch of repositories listed in the `repos.txt` file:
@@ -89,7 +89,7 @@ By default, contributions from a year ago until today are analyzed. Use the `-s`
 Output the contributions to a single repository for a specific date range, inclusive.
 
 ```bash
-gitlogstats -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git
+gitlogstats -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/gitlogstats.git
 ```
 
 The same, but to a batch of repositories listed in the `repos.txt` file:
@@ -119,7 +119,7 @@ gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt -f markdown
 Flags can be combined to provide more targeted analysis, e.g. a specific contributor over a specific date range
 
 ```
-gitlogstats -u bloombar -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/git-developer-contribution-analysis.git -f json
+gitlogstats -u bloombar -s 11/15/2021 -e 12/15/2021 -r https://github.com/bloombar/gitlogstats.git -f json
 ```
 
 The same, but to a batch of repositories listed in the `repos.txt` file:
