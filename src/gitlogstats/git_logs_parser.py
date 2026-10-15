@@ -93,6 +93,25 @@ class GitLogsParser:
         self.verboseprint(f"Contributors: {', '.join(contributors)}...")
         return contributors
 
+    def get_identities(self):
+        """
+        Return every identity (author name and email) in this repository's
+        history, the same population as get_contributors (STAT-11).
+        @returns: {author_name: {email: hash of one commit with that identity}}
+        """
+        cmd = ["git", "log", LOG_FORMAT]
+        self.verboseprint(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        identities = {}
+        for record in result.stdout.decode("utf-8", errors="replace").split(RECORD_SEP)[
+            1:
+        ]:
+            fields = record.strip("\n").split(FIELD_SEP)
+            name = fields[1].strip().strip("'")  # as get_contributors does
+            if name:
+                identities.setdefault(name, {}).setdefault(fields[2], fields[0])
+        return identities
+
     def date_range_args(self):
         """
         Build the git log options that limit commits to the date range.
@@ -275,11 +294,12 @@ class GitLogsParser:
             stats.append(entry)
         return stats
 
-    def format_results(self, results, output_format):
+    def format_results(self, results, output_format, fieldnames=None):
         """
         Format the parsed data in the selected format.
         @param results: A list of dictionaries, with each representing a contributor to the repository.
         @param output_format: The desired output format, e.g. 'csv', 'json', or 'markdown'
+        @param fieldnames: the columns of an empty CSV table; defaults to FIELDNAMES
         """
         self.verboseprint(f"Outputting results in {output_format.upper()} format:...")
         output = ""
@@ -288,7 +308,10 @@ class GitLogsParser:
             # always include the header, so even an empty result is a valid
             # CSV table; quote values that contain commas, quotes, or line breaks
             buffer = io.StringIO()
-            fieldnames = list(results[0].keys()) if results else FIELDNAMES
+            if results:
+                fieldnames = list(results[0].keys())
+            elif fieldnames is None:
+                fieldnames = FIELDNAMES
             writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
             writer.writeheader()
             writer.writerows(results)
@@ -308,7 +331,11 @@ class GitLogsParser:
                 )  # heading separator lines
             for entry in results:
                 # each row of values, with any pipes escaped so they do not split cells
-                str_values = [str(val).replace("|", "\\|") for val in entry.values()]
+                # (an unavailable value, None, is left blank)
+                str_values = [
+                    ("" if val is None else str(val)).replace("|", "\\|")
+                    for val in entry.values()
+                ]
                 output += "| " + " | ".join(str_values) + " |\n"
 
         return output
