@@ -12,7 +12,7 @@ This script calculates the following, for each developer in each repository:
 - number of **files changed**
 - number of **merges** into the analyzed branch
 
-With `--github`, it also reports each developer's GitHub **pull requests** opened, merged and closed without merging (see [GitHub pull requests](#github-pull-requests)).
+With `--github`, it also reports each developer's GitHub **pull requests** opened, merged, closed without merging and merged by themselves (see [GitHub pull requests](#github-pull-requests)).
 
 The results can be formatted as `csv`, `json`, or `markdown`.
 
@@ -54,9 +54,10 @@ options:
                         The branch to parse, if not the default branch
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
-  --github              Also report GitHub pull requests opened, merged and
-                        closed per contributor, and match GitHub users to git
-                        authors. Needs the GitHub CLI (gh), signed in
+  --github              Also report GitHub pull requests opened, merged,
+                        closed and self-merged per contributor, and match
+                        GitHub users to git authors. Needs the GitHub CLI
+                        (gh), signed in
 ```
 
 In case `gitlogstats` is not found as a command, even after installing, try `python -m gitlogstats` or `python3 -m gitlogstats` instead.
@@ -139,14 +140,15 @@ gitlogstats -rf repos.txt -c
 
 ### GitHub pull requests
 
-Add `--github` to also count each contributor's pull requests. Four columns are appended to every output format:
+Add `--github` to also count each contributor's pull requests. Five columns are appended to every output format:
 
-| Column                | Meaning                                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `github_username`     | the GitHub account matched to the contributor (never the display name), so you can check the matching |
-| `prs_opened`          | pull requests they opened in the date range, whatever their state now (drafts included)               |
-| `prs_merged`          | pull requests they authored that were merged in the date range, by anyone and in any way (squash too) |
-| `prs_closed_unmerged` | pull requests they authored that were closed without merging in the date range                        |
+| Column                | Meaning                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| `github_username`     | the GitHub account matched to the contributor (never the display name), so you can check the matching   |
+| `prs_opened`          | pull requests they opened in the date range, whatever their state now (drafts included)                 |
+| `prs_merged`          | pull requests they authored that were merged in the date range, by anyone and in any way (squash too)   |
+| `prs_closed_unmerged` | pull requests they authored that were closed without merging in the date range                          |
+| `prs_self_merged`     | pull requests they authored and also merged themselves, merged in the date range (also in `prs_merged`) |
 
 ```
 gitlogstats -r https://github.com/bloombar/gitlogstats.git --github

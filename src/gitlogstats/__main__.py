@@ -141,9 +141,9 @@ def main():
     )
     parser.add_argument(
         "--github",
-        help="Also report GitHub pull requests opened, merged and closed per "
-        "contributor, and match GitHub users to git authors. Needs the GitHub CLI "
-        "(gh), signed in",
+        help="Also report GitHub pull requests opened, merged, closed and "
+        "self-merged per contributor, and match GitHub users to git authors. "
+        "Needs the GitHub CLI (gh), signed in",
         default=False,
         action="store_true",
     )
