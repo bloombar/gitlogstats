@@ -165,7 +165,7 @@ The tool installs with `pip install gitlogstats`, which provides a `gitlogstats`
 
 #### PKG-2 Continuous integration and release
 
-GitHub Actions builds the package on every push, on Python 3.9 and 3.11, and publishes it to PyPI.
+GitHub Actions builds the package on Python 3.9 and 3.11 for every pull request into `master` and every push to `master`. It publishes to PyPI only when a pull request is merged into `master` and the build of the merged code passes; pushes to other branches publish nothing. A merge whose version is already on PyPI (no version bump) skips the upload instead of failing.
 
 **Status:** Done
 
@@ -177,9 +177,9 @@ Unit tests cover parsing and formatting, and integration tests build real git re
 
 #### PKG-4 Run tests in CI
 
-The CI workflow runs the test suite on every push and stops the release if any test fails. (Today it builds and publishes without running tests.)
+The CI workflow runs the Python test suite (`pytest`) on every pull request into `master` and every push to `master`, and on the merged code before a release; a failing test stops the release.
 
-**Status:** Todo
+**Status:** Done
 
 ### 7. Future Work
 
