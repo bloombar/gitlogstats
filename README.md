@@ -32,7 +32,7 @@ optional arguments:
                         the public URL of the repository whose logs to parse
   -rf REPOFILE, --repofile REPOFILE
                         the path to simple text file with a list of repository URLs to parse
-  -u USER, --user USER  The git username to report. Default is all contributing users
+  -u USER, --user USER  The git username (or email address) to report. Default is all contributing users
   -s START, --start START
                         Start date in mm/dd/yyyy format
   -e END, --end END     End date in mm/dd/yyyy format
@@ -60,7 +60,7 @@ Output the contributions of all developers to a single repository:
 gitlogstats -r https://github.com/bloombar/git-developer-contribution-analysis.git
 ```
 
-Output the contributions of all developers to a set of repositories stored in a file named `repos.txt` (see [example file](./repos.txt)):
+Output the contributions of all developers to a set of repositories stored in a file named `repos.txt`, one URL per line (see [example file](./repos.txt)). Blank lines and lines starting with `#` are ignored. The results for all repositories are combined into a single table:
 
 ```bash
 gitlogstats -rf repos.txt
@@ -68,7 +68,7 @@ gitlogstats -rf repos.txt
 
 ### Individual contributor versus all contributors
 
-By default, the statistics of all contributors are calculated. The `-u` flag can be used to limit the analysis to just a single contributor by referencing their git username.
+By default, the statistics of all contributors are calculated. The `-u` flag can be used to limit the analysis to just a single contributor by referencing their git username or email address. The match is exact, so `-u Al` does not include commits by `Alice`.
 
 Output the contributions of only the contributor named `bloombar` to a single repository:
 
@@ -84,7 +84,7 @@ gitlogstats -u bloombar -rf repos.txt
 
 ### Custom date range
 
-By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively.
+By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively. Both dates are inclusive: all commits made from the start of the start date to the end of the end date (by commit date, in local time) are counted.
 
 Output the contributions to a single repository for a specific date range, inclusive.
 
@@ -100,7 +100,7 @@ gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 
 ### Filter Contributors
 
-Results can be filtered to show only contributors with activity. Use the `-c` to file the result.
+By default, every contributor in a repository's history is listed, with zeros for those who were inactive in the date range. Use `-c` to show only contributors with activity.
 
 ```
 gitlogstats -rf repos.txt -c
@@ -127,6 +127,29 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 ```
 gitlogstats -u bloombar -s 11/15/2021 -e 12/15/2021 -rf repos.txt -f json
 ```
+
+### Debugging
+
+Use `-v` to print debugging information. It is written to standard error, so the results on standard output can still be redirected to a file or piped to another program.
+
+## How statistics are counted
+
+- **commits** — commits authored by the contributor in the date range, including merge commits. Commits that change no files, or only excluded files (`-x`), are not counted.
+- **insertions** / **deletions** — lines added and removed, as reported by `git log --shortstat`. Binary files and merge commits add no lines, so merged work is never counted twice.
+- **files** — the number of files each commit changed, summed over the contributor's commits.
+
+Each commit is credited to its author's name, after applying the repository's `.mailmap` if it has one. Commit messages are never read, so statistics are the same whether messages are one line, many lines, or empty.
+
+## Development
+
+The package source is in `src/gitlogstats/` and the tests are in `tests/`. Install the development dependencies and run the tests:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Python code follows PEP 8 and is formatted with [Black](https://black.readthedocs.io/). The specification is in [docs/SPEC.md](./docs/SPEC.md), and the [project board](https://github.com/users/bloombar/projects/4) is generated from it with `npm run board:derive` and `npm run board:sync` (requires Node and the `gh` CLI).
 
 ## Words of caution
 

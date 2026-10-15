@@ -11,6 +11,7 @@ build = "*"
 twine = "*"
 pytest = "*"
 pytest-cov = "*"
+black = "*"
 
 [requires]
 python_version = "3"

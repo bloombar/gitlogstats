@@ -1,0 +1,19 @@
+{
+  "name": "gitlogstats-tooling",
+  "private": true,
+  "description": "Project tooling for gitlogstats (project board sync, Claude Code hooks). The tool itself is Python; see pyproject.toml.",
+  "type": "module",
+  "scripts": {
+    "board:derive": "node scripts/board/derive.mjs",
+    "board:sync": "node scripts/board/sync.mjs",
+    "test": "python -m pytest -q",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+    "test:hooks": "node --test \".claude/hooks/*.test.mjs\"",
+    "format": "prettier --write \"scripts/**/*.mjs\" \".claude/**/*.mjs\" && black src tests",
+    "format:check": "prettier --check \"scripts/**/*.mjs\" \".claude/**/*.mjs\" && black --check src tests"
+  },
+  "devDependencies": {
+    "prettier": "3.3.3",
+    "yaml": "2.5.1"
+  }
+}

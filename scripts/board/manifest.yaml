@@ -1,0 +1,282 @@
+# Board manifest — generated from docs/SPEC.md by `npm run board:derive`.
+# Do not edit by hand: change docs/SPEC.md and re-derive, then run
+# `npm run board:sync`. Ids key the GitHub issues, so never change them.
+
+- id: CLI-1
+  title: Help and usage
+  full: gitlogstats --help lists every option with a short description.
+  section: §5 Command-Line Interface
+  family: CLI
+  phase: 1
+  status: Done
+- id: CLI-2
+  title: Input validation
+  full: Invalid dates, and a start date after the end date, are rejected with a
+    usage error and exit status 2 instead of a stack trace.
+  section: §5 Command-Line Interface
+  family: CLI
+  phase: 1
+  status: Done
+- id: FILT-1
+  title: Date range
+  full: "-s/--start and -e/--end (format mm/dd/yyyy) limit the analysis to commits
+    whose commit date falls between the start of the start date and the end of
+    the end date, inclusive, in local time. Defaults: one year ago until today.
+    The output records the requested start and end dates on every row."
+  section: §3 Filtering
+  family: FILT
+  phase: 1
+  status: Done
+- id: FILT-2
+  title: Single contributor
+  full: -u/--user <name> reports only the contributor whose author name or email
+    address matches exactly. Without -u, every contributor in the repository's
+    history is reported.
+  section: §3 Filtering
+  family: FILT
+  phase: 1
+  status: Done
+- id: FILT-3
+  title: File exclusions
+  full: "-x/--exclusions takes a comma-separated list of file names or glob
+    patterns to leave out of the analysis, matched in any directory. By default
+    common generated and binary files are excluded: package.json,
+    package-lock.json, Pipfile, Pipfile.lock, requirements.txt, .jpg, .png,
+    .gif, .svg, .pdf, .zip, .gz, .tar, .csv, .json."
+  section: §3 Filtering
+  family: FILT
+  phase: 1
+  status: Done
+- id: FILT-4
+  title: Remove inactive contributors
+  full: By default, contributors with no activity in the date range are listed
+    with zeros. -c/--clean removes them.
+  section: §3 Filtering
+  family: FILT
+  phase: 1
+  status: Done
+- id: OUT-1
+  title: CSV output
+  full: -f csv (the default) prints a header row followed by one row per
+    contributor per repository, with fields username, repository, start_date,
+    end_date, commits, insertions, deletions, files. Values containing commas,
+    quotes or line breaks are quoted. The header is printed even when there are
+    no rows, and the output ends with a single newline.
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Done
+- id: OUT-2
+  title: JSON output
+  full: -f json prints a single JSON array of objects with the same fields, valid
+    JSON even when several repositories are analyzed.
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Done
+- id: OUT-3
+  title: Markdown output
+  full: -f markdown prints a Markdown table with the same columns. Pipe characters
+    in values are escaped so they do not split cells.
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Done
+- id: OUT-4
+  title: One combined result across repositories
+  full: When several repositories are analyzed, the results are printed once,
+    after all repositories are processed, as a single CSV table, JSON array or
+    Markdown table.
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Done
+- id: OUT-5
+  title: Verbose diagnostics
+  full: -v/--verbose prints debugging information (directories, the git commands
+    run, contributors found) to standard error, so standard output stays
+    machine-readable.
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Done
+- id: PKG-1
+  title: Installable package
+  full: The tool installs with pip install gitlogstats, which provides a
+    gitlogstats command. It can also be run as python -m gitlogstats.
+  section: §6 Packaging & Quality
+  family: PKG
+  phase: 1
+  status: Done
+- id: PKG-2
+  title: Continuous integration and release
+  full: GitHub Actions builds the package on every push, on Python 3.9 and 3.11,
+    and publishes it to PyPI.
+  section: §6 Packaging & Quality
+  family: PKG
+  phase: 1
+  status: Done
+- id: PKG-3
+  title: Automated tests
+  full: Unit tests cover parsing and formatting, and integration tests build real
+    git repositories to check the statistics across commit-message shapes, kinds
+    of change, author names, date boundaries, exclusions and the command-line
+    options. Run with pytest.
+  section: §6 Packaging & Quality
+  family: PKG
+  phase: 1
+  status: Done
+- id: PKG-4
+  title: Run tests in CI
+  full: The CI workflow runs the test suite on every push and stops the release if
+    any test fails. (Today it builds and publishes without running tests.)
+  section: §6 Packaging & Quality
+  family: PKG
+  phase: 1
+  status: Todo
+- id: REPO-1
+  title: Single repository
+  full: -r/--repository <url> analyzes one repository. Any URL or path that git
+    clone accepts works, including HTTPS, SSH (git@host:user/repo.git) and local
+    paths. Exactly one of -r or -rf is required.
+  section: §1 Repository Selection
+  family: REPO
+  phase: 1
+  status: Done
+- id: REPO-2
+  title: Repository list file
+  full: -rf/--repofile <path> analyzes every repository listed in a plain text
+    file, one URL per line. Surrounding whitespace is ignored, as are blank
+    lines and lines starting with .
+  section: §1 Repository Selection
+  family: REPO
+  phase: 1
+  status: Done
+- id: REPO-3
+  title: Local clone cache
+  full: Repositories are cloned into a repos/ directory under the current working
+    directory, in a folder named the way git clone names it (the last path
+    segment, minus a trailing .git; dots in the name are kept). On later runs
+    the existing clone is updated with git pull instead of being cloned again.
+  section: §1 Repository Selection
+  family: REPO
+  phase: 1
+  status: Done
+- id: REPO-4
+  title: Branch selection
+  full: -b/--branch <name> checks out the given branch before statistics are
+    computed. Without -b, the repository's default branch is used — including
+    when an earlier run left the cached clone on another branch.
+  section: §1 Repository Selection
+  family: REPO
+  phase: 1
+  status: Done
+- id: STAT-1
+  title: Commit count
+  full: For each contributor, the number of commits they authored in the date
+    range. Merge commits count as commits. Commits that change no files (empty
+    commits) and commits that only touch excluded files (FILT-3) are not
+    counted.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-2
+  title: Lines inserted and deleted
+  full: For each contributor, the sum of lines inserted and lines deleted across
+    their commits, as reported by git log --shortstat. Binary files add no
+    lines. Merge commits add no lines, so work merged from a branch is never
+    counted twice.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-3
+  title: Files changed
+  full: For each contributor, the sum over their commits of the number of files
+    each commit changed, as reported by git log --shortstat (binary files and
+    renames included).
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-4
+  title: Exact author attribution
+  full: "Each commit is credited to exactly one contributor: the commit's author
+    name. Names that are prefixes of each other (Al, Alice), or that contain
+    spaces, quotes, brackets or other symbols, are kept apart and counted
+    correctly. The per-contributor totals for a repository add up to the
+    repository's totals."
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-5
+  title: Statistics independent of commit messages
+  full: "Statistics are correct whatever the commit messages contain: single-line,
+    multi-line (with or without a blank line after the subject), empty,
+    non-English, or text that looks like git log output (e.g. commit abc123 or 3
+    files changed). Commit messages are never read; each commit's author and
+    change summary come from a machine-readable git log format."
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-6
+  title: Mailmap identities
+  full: Author names are taken after applying the repository's .mailmap, so a
+    developer who committed under several names or email addresses can be
+    reported as one contributor when the repository maps them.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: FUTURE-author-date-filtering
+  title: Author-date filtering
+  full: Author-date filtering — offer filtering by author date, so rebased or
+    cherry-picked work is credited to when it was written rather than when it
+    was last committed.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-contributor-aliases
+  title: Contributor aliases
+  full: Contributor aliases — let users merge several names or emails into one
+    contributor from the command line, for repositories without a .mailmap.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-output-to-file
+  title: Output to file
+  full: Output to file — write results to a file (e.g. -o report.csv) instead of
+    only standard output.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-parallel-processing
+  title: Parallel processing
+  full: Parallel processing — clone and analyze many repositories concurrently to
+    speed up large batches.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-per-file-breakdown
+  title: Per-file breakdown
+  full: Per-file breakdown — optionally report each contributor's changes per file
+    or directory.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-private-repositories
+  title: Private repositories
+  full: Private repositories — document and support authenticated cloning of
+    private repositories (e.g. via a token or SSH agent).
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo

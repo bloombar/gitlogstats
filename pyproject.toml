@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
-version = "1.0.6"
+version = "1.0.7"
 authors = [
   { name="Tobody Tothing", email="nobody.nothing@nowhere.com" },
 ]
@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "build", "twine"]
+dev = ["pytest", "pytest-cov", "black", "build", "twine"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

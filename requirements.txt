@@ -5,3 +5,4 @@ build
 twine
 pytest
 pytest-cov
+black
