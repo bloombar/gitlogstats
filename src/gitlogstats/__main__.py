@@ -6,6 +6,36 @@ import re
 from . import GitLogsParser
 
 
+def valid_date(value):
+    """
+    Check that a command-line date is in mm/dd/yyyy format.
+    @param value: the date as typed by the user
+    @returns: the same date string, if valid
+    """
+    try:
+        datetime.datetime.strptime(value, "%m/%d/%Y")
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid date '{value}': use mm/dd/yyyy format"
+        )
+    return value
+
+
+def default_branch():
+    """
+    Find the default branch of the repository in the current directory, as recorded by git clone.
+    @returns: the branch name, e.g. 'main', or None if it cannot be determined
+    """
+    result = subprocess.run(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip().split("/", 1)[-1]  # 'origin/main' -> 'main'
+
+
 def main():
     """
     Generate results using the GitLogsParser with command-line arguments.
@@ -53,14 +83,22 @@ def main():
     parser.add_argument(
         "-u",
         "--user",
-        help="The git username to report.  Default is all contributing users",
+        help="The git username (or email address) to report.  Default is all contributing users",
         default=None,
     )
     parser.add_argument(
-        "-s", "--start", help="Start date in mm/dd/yyyy format", default=str_last_year
+        "-s",
+        "--start",
+        help="Start date in mm/dd/yyyy format",
+        default=str_last_year,
+        type=valid_date,
     )  # default to one year ago
     parser.add_argument(
-        "-e", "--end", help="End date in mm/dd/yyyy format", default=str_today
+        "-e",
+        "--end",
+        help="End date in mm/dd/yyyy format",
+        default=str_today,
+        type=valid_date,
     )  # default to today
     parser.add_argument(
         "-x",
@@ -92,24 +130,24 @@ def main():
         "-c",
         "--clean",
         help="Remove contributors without any contribuition",
-        default=True,
+        default=False,
         action="store_true",
     )
     args = parser.parse_args()
 
-    # fix up exclusions
-    args.exclusions = re.split(
-        r",\s*", args.exclusions
-    )  # split up comma-separated string into list
-    #   print(f'Exclusions: {args.exclusions}')
+    if datetime.datetime.strptime(args.start, "%m/%d/%Y") > datetime.datetime.strptime(
+        args.end, "%m/%d/%Y"
+    ):
+        parser.error("the start date must not be after the end date")
+
+    # split up comma-separated string into list, ignoring empty items
+    args.exclusions = [x.strip() for x in re.split(r",", args.exclusions) if x.strip()]
 
     # deal with repofile, if specified
     repository_urls = [args.repository]
     if args.repofile:
-        f = open(args.repofile, "r", encoding="utf8")
-        repository_urls = [
-            line for line in f.read().strip().split("\n")
-        ]  # a list of urls from the file
+        with open(args.repofile, "r", encoding="utf8") as f:
+            repository_urls = GitLogsParser.read_repository_urls(f.read())
 
     # navigate into the directory where repos will be stored
     repos_dir = os.path.join(
@@ -124,30 +162,34 @@ def main():
     last_parser = None
     for repo_url in repository_urls:
         os.chdir(repos_dir)  # start from the parent directory of all repos
-        # code = subprocess.run(['pwd']) # check the directory
 
         repo_dir = GitLogsParser.repo_name_from_url(
             repo_url
         )  # extract the humanish repo name from the URL
         repo_dir = os.path.join(repos_dir, repo_dir)  # convert to absolute path
-        # clone or pull the repo into the repo_dir
+        # clone the repo into the repo_dir, or update a previous clone
         if not os.path.exists(repo_dir):
             # has not yet been cloned... do a clone
             subprocess.run(
-                ["git", "clone", repo_url], capture_output=True, check=True
+                ["git", "clone", repo_url, repo_dir], capture_output=True, check=True
             )  # clone the code from github
             os.chdir(repo_dir)  # navigate into this repository's directory
+            if args.branch:
+                subprocess.run(
+                    ["git", "checkout", args.branch], capture_output=True, check=True
+                )
         else:
-            # has previously been cloned... do a pull
+            # has previously been cloned... switch to the requested branch (or
+            # back to the default branch, in case an earlier run used -b), then pull
             os.chdir(repo_dir)  # navigate into this repository's directory
+            branch = args.branch or default_branch()
+            if branch:
+                subprocess.run(
+                    ["git", "checkout", branch], capture_output=True, check=True
+                )
             subprocess.run(
                 ["git", "pull"], capture_output=True, check=True
-            )  # clone the code from github
-
-        if args.branch:
-            subprocess.run(
-                ["git", "checkout", args.branch], capture_output=True, check=True
-            )
+            )  # get the latest code from github
 
         last_parser = GitLogsParser(
             repo=repo_dir,
@@ -158,17 +200,13 @@ def main():
             verbose=args.verbose,
             clean=args.clean,
         )
-        results = last_parser.parse()
+        all_results.extend(last_parser.parse())  # collect across repos
 
-        if args.format == "json":
-            all_results.extend(
-                results
-            )  # collect across repos; emit one valid JSON array
-        else:
-            print(last_parser.format_results(results, args.format))
-
-    if args.format == "json" and last_parser is not None:
-        print(last_parser.format_results(all_results, "json"))
+    # emit a single table (or JSON array) covering all repositories
+    if last_parser is not None:
+        output = last_parser.format_results(all_results, args.format)
+        # end with exactly one newline: CSV and Markdown output already has one
+        print(output, end="" if output.endswith("\n") else "\n")
 
 
 # if this script is being run directly...

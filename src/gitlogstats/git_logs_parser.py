@@ -1,15 +1,37 @@
 #!/usr/bin/env python3
 
 import os
-
-# import sys
+import sys
 import subprocess
-
-# import argparse
 import datetime
-import shlex
+import csv
+import io
 import re
 import json
+
+# Each commit's header in the git log output starts with this record separator,
+# followed by the hash, author name, and author email, separated by unit
+# separators. Control characters cannot appear in names or emails, and commit
+# messages are never printed, so message contents can never confuse the parser.
+RECORD_SEP = "\x1e"
+FIELD_SEP = "\x1f"
+LOG_FORMAT = f"--format={RECORD_SEP}%H{FIELD_SEP}%aN{FIELD_SEP}%aE"
+
+FILES_RE = re.compile(r"(\d+) files? changed")
+INSERTIONS_RE = re.compile(r"(\d+) insertions?\(\+\)")
+DELETIONS_RE = re.compile(r"(\d+) deletions?\(-\)")
+
+# the fields reported for each contributor, in output order
+FIELDNAMES = [
+    "username",
+    "repository",
+    "start_date",
+    "end_date",
+    "commits",
+    "insertions",
+    "deletions",
+    "files",
+]
 
 
 class GitLogsParser:
@@ -52,99 +74,136 @@ class GitLogsParser:
     def get_contributors(self):
         """
         Return a list of contributors to this repository.
-        @returns: a list of all contributors' git usernames
+        @returns: a sorted list of all contributors' git usernames
         """
         contributors = set()  # a set that will include all contributors
 
         # use git logs to get all contributor usernames
-
-        # split up the command so the subprocess module can run it
-        cmd = "git log --format='%aN'".split(" ")
+        cmd = ["git", "log", "--format=%aN"]
         with subprocess.Popen(
             cmd, stdout=subprocess.PIPE, bufsize=1, universal_newlines=True
         ) as p:
             for line in p.stdout:
-                line = line.strip().strip("'")  # remove line break and single quotes
-                contributors.add(line)  # add to set
+                line = line.strip().strip("'")  # remove line break and any quotes
+                if line:
+                    contributors.add(line)  # add to set
 
-        contributors = list(contributors)  # list version
-        contributors_string = ", ".join(contributors)  # string version
-        self.verboseprint(f"Contributors: {contributors_string}...")
+        contributors = sorted(contributors)  # sorted for stable output
+        self.verboseprint(f"Contributors: {', '.join(contributors)}...")
         return contributors
+
+    def git_log_command(self):
+        """
+        Build the git log command that lists every commit in the date range with
+        its author and a one-line summary of its changes.
+        @returns: the command as a list of arguments, ready for subprocess
+        """
+        # the date range is inclusive: from the very start of the start date to
+        # the very end of the end date
+        since = datetime.datetime.strptime(self.start, "%m/%d/%Y")
+        until = datetime.datetime.strptime(self.end, "%m/%d/%Y").replace(
+            hour=23, minute=59, second=59
+        )
+        cmd = [
+            "git",
+            "log",
+            "--shortstat",
+            LOG_FORMAT,
+            f"--since={since:%Y-%m-%d %H:%M:%S}",
+            f"--until={until:%Y-%m-%d %H:%M:%S}",
+            "--",
+            ".",
+        ]
+        # put the exclusions in the format git logs uses
+        cmd += [f":(exclude,glob)**/{x}" for x in self.exclusions if x]
+        return cmd
+
+    @staticmethod
+    def parse_log(logs):
+        """
+        Split raw git log output (produced by git_log_command) into per-commit records.
+        @param logs: the text output of git log
+        @returns: a list of dictionaries, one per commit, with the author's name and email and the commit's files, insertions and deletions
+        """
+        commits = []
+        for record in logs.split(RECORD_SEP)[1:]:
+            header, _, body = record.partition("\n")
+            fields = header.split(FIELD_SEP)
+            if len(fields) < 3:
+                continue  # not a commit header
+            files = FILES_RE.search(body)
+            insertions = INSERTIONS_RE.search(body)
+            deletions = DELETIONS_RE.search(body)
+            commits.append(
+                {
+                    "hash": fields[0],
+                    "name": fields[1],
+                    "email": fields[2],
+                    "files": int(files.group(1)) if files else 0,
+                    "insertions": int(insertions.group(1)) if insertions else 0,
+                    "deletions": int(deletions.group(1)) if deletions else 0,
+                }
+            )
+        return commits
 
     def parse(self):
         """
         Parse the git logs and extract a breakdown of the contributions of each contributing user.
-        @returns: contribution stats of all users, as a dictionary with usernames as the keys
+        @returns: contribution stats of all users, as a list of dictionaries, one per user
         """
+        cmd = self.git_log_command()
+        self.verboseprint(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        logs = result.stdout.decode("utf-8", errors="replace")
+        commits = self.parse_log(logs)
 
-        # git requires start & end dates to be 1 day before and after the target range
-        git_start_date = datetime.datetime.strptime(
-            self.start, "%m/%d/%Y"
-        ) - datetime.timedelta(days=1)
-        git_end_date = datetime.datetime.strptime(
-            self.end, "%m/%d/%Y"
-        ) + datetime.timedelta(days=1)
+        # limit to the specified username, if any; otherwise all contributors
+        if self.username:
+            contributors = [self.username]
+        else:
+            contributors = self.get_contributors()
 
-        # get stats for each contributor
-        stats = []  # will contain contribution stats for each contributor
-
-        # if no contributor specified, get a list of all of them
-        contributors = [self.username]  # liit to the specified username, if any
-        if not self.username:
-            contributors = list(
-                self.get_contributors()
-            )  # the full list of contributors
-
+        # set up stats for each contributor in dictionary form
+        entries = {}
         for contributor in contributors:
-            exclusions = "-- . " + " ".join(
-                [f'":(exclude,glob)**/{x}"' for x in self.exclusions]
-            )  # put the exclusions in the format git logs uses
-            # exclusions = r'''-- . ":(exclude,glob)**/package-lock.json" ":(exclude,glob)**/*.jpg" ":(exclude,glob)**/*.png" ":(exclude,glob)**/*.gif" ":(exclude,glob)**/*.svg" ":(exclude,glob)**/*.pdf" ":(exclude,glob)**/*.zip" ":(exclude,glob)**/*.csv" ":(exclude,glob)**/*.json" '''
-            cmd = f'git log --shortstat --author="{contributor}" --after="{git_start_date}" --before="{git_end_date}" {exclusions}'
-            self.verboseprint(f"Running command: {cmd}")
-            # self.verboseprint(f'With exclusions: {exclusions}')
-            cmd = shlex.split(cmd)  # split command by spaces, except where in quotes
-            result = subprocess.run(
-                cmd, capture_output=True, check=True
-            )  # run the command
-            logs = result.stdout.decode("utf-8")  # capture the output
-            # set up stats for this contributor in dictionary form
-            entry = {
+            entries[contributor] = {
                 "username": contributor,  # redundant, but useful
                 "repository": self.repo_name_from_url(self.repository),
                 "start_date": self.start,
                 "end_date": self.end,
-                # 'merges': len(re.findall('Merge', logs)), # number of times we find a merge message... git logs do not reliably show these
-                "commits": len(
-                    re.findall("commit [a-z0-9]+\n", logs)
-                ),  # number of times we find a commit message
+                "commits": 0,
                 "insertions": 0,
                 "deletions": 0,
                 "files": 0,
             }
-            # find all number of files changed, lines inserted, lines deleted:
-            pattern = re.compile(
-                r"commit ([a-zA-Z0-9]+).*\nAuthor:\s(.*)\s<((.*))>.*\nDate:\s(.*)\n\n(.*)\n\n(.*?(\d+) file[s]? changed)?(.*?(\d+) insertion[s]?)?(.*?(\d+) deletion[s]?)?"
-            )
-            for match in re.finditer(pattern, logs):
-                # print(str(match.groups()))
-                entry["files"] += int(match.group(8)) if match.group(8) else 0
-                entry["insertions"] += int(match.group(10)) if match.group(10) else 0
-                entry["deletions"] += int(match.group(12)) if match.group(12) else 0
-            # add this user's stats to the list
-            # removing merges since they are not reliably mentioned in the stats
-            # if(self.clean and (entry['merges'] == 0 and entry['commits'] == 0 and entry['insertions'] == 0 and entry['deletions'] == 0 and entry['files'] == 0)):
+
+        # credit each commit to its author; a username given on the command
+        # line matches an author's exact name or email address
+        for commit in commits:
+            if self.username:
+                if self.username not in (commit["name"], commit["email"]):
+                    continue
+                entry = entries[self.username]
+            else:
+                entry = entries.get(commit["name"])
+                if entry is None:
+                    continue  # should not happen: every author is a contributor
+            entry["commits"] += 1
+            entry["files"] += commit["files"]
+            entry["insertions"] += commit["insertions"]
+            entry["deletions"] += commit["deletions"]
+
+        stats = []
+        for entry in entries.values():
+            # skip contributors without any contribution, if requested
             if self.clean and (
                 entry["commits"] == 0
                 and entry["insertions"] == 0
                 and entry["deletions"] == 0
                 and entry["files"] == 0
             ):
-                pass
-            else:
-                stats.append(entry)
-            # self.verboseprint('Entry: ', entry) # only printed when in verbose mode
+                continue
+            stats.append(entry)
         return stats
 
     def format_results(self, results, output_format):
@@ -157,14 +216,14 @@ class GitLogsParser:
         output = ""
         # output in the selected format
         if output_format == "csv":
-            if len(results) > 0:
-                fieldnames = results[
-                    0
-                ].keys()  # get the field names from the first dictionary in the list
-                output += ",".join(list(fieldnames)) + "\n"
-            for entry in results:
-                str_values = [str(val) for val in list(entry.values())]
-                output += ",".join(str_values) + "\n"
+            # always include the header, so even an empty result is a valid
+            # CSV table; quote values that contain commas, quotes, or line breaks
+            buffer = io.StringIO()
+            fieldnames = list(results[0].keys()) if results else FIELDNAMES
+            writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(results)
+            output = buffer.getvalue()
 
         elif output_format == "json":
             output = json.dumps(results)
@@ -179,8 +238,8 @@ class GitLogsParser:
                     "| " + " | ".join([":----" for key in results[0].keys()]) + " |\n"
                 )  # heading separator lines
             for entry in results:
-                # each row of values
-                str_values = [str(val) for val in list(entry.values())]
+                # each row of values, with any pipes escaped so they do not split cells
+                str_values = [str(val).replace("|", "\\|") for val in entry.values()]
                 output += "| " + " | ".join(str_values) + " |\n"
 
         return output
@@ -191,31 +250,37 @@ class GitLogsParser:
         """
         repository_urls = [self.repository]
         if self.repofile:
-            f = open(self.repofile, "r", encoding="utf8")
-            repository_urls = [
-                line for line in f.read().strip().split("\n")
-            ]  # a list of urls from the file
-            f.close()
+            with open(self.repofile, "r", encoding="utf8") as f:
+                repository_urls = self.read_repository_urls(f.read())
         return repository_urls
+
+    @staticmethod
+    def read_repository_urls(text):
+        """
+        Extract repository URLs from the contents of a repository list file.
+        Blank lines and lines starting with # are ignored.
+        @param text: the contents of the file
+        @returns: a list of repository URLs
+        """
+        urls = [line.strip() for line in text.splitlines()]
+        return [url for url in urls if url and not url.startswith("#")]
 
     def verboseprint(self, *args):
         """
         Print out debugging info only if verbose mode has been turned on.
+        Debugging info goes to stderr so it never mixes with the results on stdout.
         """
         if self.verbose:
-            v = print
-        else:
-            v = lambda *args: None
-        v(*args)
+            print(*args, file=sys.stderr)
 
     @staticmethod
     def repo_name_from_url(repo_url):
         """
-        Extracts the humanish repository name from the full repository URL.  For example, 'foo-bar' from 'https://github.com/education-automation/foo-bar.git'
+        Extracts the humanish repository name from the full repository URL, the same way git clone names the directory.  For example, 'foo-bar' from 'https://github.com/education-automation/foo-bar.git'
         @param repo_url: The URL of the repository of interest
         @returns: The repository name, with the rest of the URL removed.
         """
-        repo_name = (
-            repo_url.strip("/").split("/")[-1].split(".")[0]
-        )  # get just the directory name from the url of this repo
+        repo_name = re.split(r"[/:]", repo_url.strip().rstrip("/"))[-1]
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[: -len(".git")]
         return repo_name
