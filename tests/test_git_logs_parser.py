@@ -89,6 +89,18 @@ def run_mock(stdout_text):
     return result
 
 
+def git_logs(commits_log, merges_log=""):
+    """
+    Return a subprocess.run side effect that answers GitLogsParser's two git
+    commands: *commits_log* for the commit log, *merges_log* for the merge log.
+    """
+
+    def run(cmd, **kwargs):
+        return run_mock(merges_log if "--merges" in cmd else commits_log)
+
+    return run
+
+
 # ─── repo_name_from_url ──────────────────────────────────────────────────────
 
 
@@ -240,7 +252,7 @@ class TestFormatResultsCsv:
 
     def test_empty_results_returns_header_only(self):
         assert self.p.format_results([], "csv") == (
-            "username,repository,start_date,end_date,commits,insertions,deletions,files\n"
+            "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
         )
 
     def test_single_result_has_header_and_one_row(self):
@@ -383,44 +395,44 @@ class TestGetContributors:
 class TestParse:
     def test_commits_counted(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["commits"] == 2
 
     def test_insertions_summed(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["insertions"] == 55  # 45 + 10
 
     def test_deletions_summed(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["deletions"] == 14  # 12 + 2
 
     def test_files_summed(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["files"] == 4  # 3 + 1
 
     def test_username_in_result(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["username"] == "alice"
 
     def test_repository_name_extracted_from_url(self):
         p = make_parser(username="alice", repo="https://github.com/user/myrepo.git")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             assert p.parse()[0]["repository"] == "myrepo"
 
     def test_dates_preserved_in_result(self):
         p = make_parser(username="alice", start="03/01/2024", end="03/31/2024")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             entry = p.parse()[0]
         assert entry["start_date"] == "03/01/2024"
         assert entry["end_date"] == "03/31/2024"
 
     def test_empty_log_produces_zero_stats(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_EMPTY)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_EMPTY)):
             entry = p.parse()[0]
         assert entry["commits"] == 0
         assert entry["insertions"] == 0
@@ -429,7 +441,7 @@ class TestParse:
 
     def test_insertions_only_no_deletions(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_INSERTIONS_ONLY)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_INSERTIONS_ONLY)):
             entry = p.parse()[0]
         assert entry["insertions"] == 100
         assert entry["deletions"] == 0
@@ -437,25 +449,25 @@ class TestParse:
 
     def test_clean_true_removes_zero_activity_contributor(self):
         p = make_parser(username="alice", clean=True)
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_EMPTY)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_EMPTY)):
             assert p.parse() == []
 
     def test_clean_false_keeps_zero_activity_contributor(self):
         p = make_parser(username="alice", clean=False)
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_EMPTY)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_EMPTY)):
             assert len(p.parse()) == 1
 
     def test_all_contributors_used_when_no_username(self):
         p = make_parser(username=None)
         with patch("subprocess.Popen", popen_mock(["alice\n", "bob\n"])), patch(
-            "subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)
+            "subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)
         ):
             results = p.parse()
         assert len(results) == 2
 
     def test_result_contains_expected_keys(self):
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(GIT_LOG_TWO_COMMITS)):
+        with patch("subprocess.run", side_effect=git_logs(GIT_LOG_TWO_COMMITS)):
             entry = p.parse()[0]
         expected_keys = {
             "username",
@@ -466,13 +478,14 @@ class TestParse:
             "insertions",
             "deletions",
             "files",
+            "merges",
         }
         assert set(entry.keys()) == expected_keys
 
     def test_single_commit_log(self):
         log = log_record("alice", "2 files changed, 20 insertions(+), 5 deletions(-)")
         p = make_parser(username="alice")
-        with patch("subprocess.run", return_value=run_mock(log)):
+        with patch("subprocess.run", side_effect=git_logs(log)):
             entry = p.parse()[0]
         assert entry["commits"] == 1
         assert entry["insertions"] == 20
@@ -589,8 +602,23 @@ class TestGitLogCommand:
             "--",
             ".",
             ":(exclude,glob)**/*.jpg",
+            ":(exclude,glob)**/*.jpg/**",
             ":(exclude,glob)**/foo.json",
+            ":(exclude,glob)**/foo.json/**",
         ]
+
+    def test_directory_exclusions_cover_their_contents(self):
+        cmd = make_parser(exclusions=["vendor/", " build "]).git_log_command()
+        assert cmd[cmd.index("--") + 2 :] == [
+            ":(exclude,glob)**/vendor",
+            ":(exclude,glob)**/vendor/**",
+            ":(exclude,glob)**/build",
+            ":(exclude,glob)**/build/**",
+        ]
+
+    def test_no_exclusions_means_whole_tree(self):
+        cmd = make_parser(exclusions=[]).git_log_command()
+        assert cmd[cmd.index("--") :] == ["--", "."]
 
     def test_commit_messages_are_not_printed(self):
         # the format only prints hash, name and email; never %s or %b
@@ -617,7 +645,7 @@ class TestParseAuthorMatching:
     def test_name_that_is_a_prefix_of_another_is_not_merged(self):
         p = make_parser()
         with patch("subprocess.Popen", popen_mock(["Al\n", "Alice\n"])), patch(
-            "subprocess.run", return_value=run_mock(self.LOG)
+            "subprocess.run", side_effect=git_logs(self.LOG)
         ):
             by_name = {e["username"]: e for e in p.parse()}
         assert by_name["Al"]["commits"] == 1 and by_name["Al"]["insertions"] == 1
@@ -625,13 +653,13 @@ class TestParseAuthorMatching:
 
     def test_username_option_matches_exact_name_only(self):
         p = make_parser(username="Al")
-        with patch("subprocess.run", return_value=run_mock(self.LOG)):
+        with patch("subprocess.run", side_effect=git_logs(self.LOG)):
             (entry,) = p.parse()
         assert entry["commits"] == 1
 
     def test_username_option_matches_email(self):
         p = make_parser(username="alice@example.com")
-        with patch("subprocess.run", return_value=run_mock(self.LOG)):
+        with patch("subprocess.run", side_effect=git_logs(self.LOG)):
             (entry,) = p.parse()
         assert entry["username"] == "alice@example.com"
         assert entry["commits"] == 2 and entry["files"] == 5
@@ -639,14 +667,14 @@ class TestParseAuthorMatching:
     def test_commit_by_unknown_author_is_ignored(self):
         p = make_parser()
         with patch("subprocess.Popen", popen_mock(["Al\n"])), patch(
-            "subprocess.run", return_value=run_mock(self.LOG)
+            "subprocess.run", side_effect=git_logs(self.LOG)
         ):
             (entry,) = p.parse()
         assert entry["username"] == "Al" and entry["commits"] == 1
 
     def test_clean_keeps_contributor_with_commits_but_no_line_changes(self):
         p = make_parser(username="alice", clean=True)
-        with patch("subprocess.run", return_value=run_mock(log_record("alice", None))):
+        with patch("subprocess.run", side_effect=git_logs(log_record("alice", None))):
             (entry,) = p.parse()
         assert entry["commits"] == 1
 
@@ -654,7 +682,7 @@ class TestParseAuthorMatching:
         p = make_parser(username="alice")
         result = MagicMock()
         result.stdout = log_record("alice", "1 file changed").encode() + b"\xff"
-        with patch("subprocess.run", return_value=result):
+        with patch("subprocess.run", side_effect=[result, run_mock("")]):
             assert p.parse()[0]["commits"] == 1
 
 
@@ -688,3 +716,65 @@ class TestReadRepositoryUrls:
             "https://a/x.git",
             "https://a/y",
         ]
+
+
+# ─── merges ──────────────────────────────────────────────────────────────────
+
+
+class TestMergeLogCommand:
+    def test_lists_only_merges_on_the_branch_itself(self):
+        cmd = make_parser().merge_log_command()
+        assert "--merges" in cmd and "--first-parent" in cmd
+
+    def test_uses_the_same_inclusive_date_range(self):
+        cmd = make_parser(start="03/01/2024", end="03/31/2024").merge_log_command()
+        assert "--since=2024-03-01 00:00:00" in cmd
+        assert "--until=2024-03-31 23:59:59" in cmd
+
+    def test_file_exclusions_do_not_apply(self):
+        cmd = make_parser(exclusions=["*.jpg"]).merge_log_command()
+        assert "--" not in cmd and not any("exclude" in a for a in cmd)
+
+    def test_commit_log_leaves_out_merges_and_disables_simplification(self):
+        cmd = make_parser().git_log_command()
+        assert "--no-merges" in cmd and "--full-history" in cmd
+
+
+class TestParseMerges:
+    MERGES = log_record("Carol", None, "m1", "carol@example.com") + log_record(
+        "Carol", None, "m2", "carol@example.com"
+    )
+
+    def parse(self, commits_log="", merges_log=MERGES, **kwargs):
+        p = make_parser(**kwargs)
+        with patch("subprocess.Popen", popen_mock(["alice\n", "Carol\n"])), patch(
+            "subprocess.run", side_effect=git_logs(commits_log, merges_log)
+        ):
+            return {e["username"]: e for e in p.parse()}
+
+    def test_merges_counted_per_author(self):
+        result = self.parse(GIT_LOG_TWO_COMMITS)
+        assert result["Carol"]["merges"] == 2
+        assert result["alice"]["merges"] == 0
+
+    def test_merges_are_not_commits_and_add_no_lines(self):
+        result = self.parse(GIT_LOG_TWO_COMMITS)
+        carol = result["Carol"]
+        assert (carol["commits"], carol["merges"]) == (0, 2)
+        assert (carol["files"], carol["insertions"], carol["deletions"]) == (0, 0, 0)
+        assert result["alice"]["commits"] == 2
+
+    def test_username_option_matches_merge_author_email(self):
+        result = self.parse(username="carol@example.com")
+        assert result["carol@example.com"]["merges"] == 2
+
+    def test_username_option_ignores_other_authors_merges(self):
+        assert self.parse(username="alice")["alice"]["merges"] == 0
+
+    def test_clean_keeps_contributor_whose_only_activity_is_merging(self):
+        result = self.parse(clean=True)
+        assert list(result) == ["Carol"]
+
+    def test_merge_by_unknown_author_is_ignored(self):
+        result = self.parse(merges_log=log_record("Mallory", None))
+        assert all(e["merges"] == 0 for e in result.values())

@@ -31,6 +31,7 @@ FIELDNAMES = [
     "insertions",
     "deletions",
     "files",
+    "merges",
 ]
 
 
@@ -92,31 +93,88 @@ class GitLogsParser:
         self.verboseprint(f"Contributors: {', '.join(contributors)}...")
         return contributors
 
-    def git_log_command(self):
+    def date_range_args(self):
         """
-        Build the git log command that lists every commit in the date range with
-        its author and a one-line summary of its changes.
-        @returns: the command as a list of arguments, ready for subprocess
+        Build the git log options that limit commits to the date range.
+        The range is inclusive: from the very start of the start date to the
+        very end of the end date.
+        @returns: a list of git log arguments
         """
-        # the date range is inclusive: from the very start of the start date to
-        # the very end of the end date
         since = datetime.datetime.strptime(self.start, "%m/%d/%Y")
         until = datetime.datetime.strptime(self.end, "%m/%d/%Y").replace(
             hour=23, minute=59, second=59
         )
+        return [
+            f"--since={since:%Y-%m-%d %H:%M:%S}",
+            f"--until={until:%Y-%m-%d %H:%M:%S}",
+        ]
+
+    def git_log_command(self):
+        """
+        Build the git log command that lists every non-merge commit in the date
+        range with its author and a one-line summary of its changes. Merge
+        commits come from merge_log_command instead.
+        @returns: the command as a list of arguments, ready for subprocess
+        """
+        # --full-history stops git from hiding commits while simplifying the
+        # history for the path filter below; merges are counted separately
         cmd = [
             "git",
             "log",
+            "--full-history",
+            "--no-merges",
             "--shortstat",
             LOG_FORMAT,
-            f"--since={since:%Y-%m-%d %H:%M:%S}",
-            f"--until={until:%Y-%m-%d %H:%M:%S}",
+            *self.date_range_args(),
             "--",
             ".",
         ]
-        # put the exclusions in the format git logs uses
-        cmd += [f":(exclude,glob)**/{x}" for x in self.exclusions if x]
+        cmd += self.exclusion_pathspecs()
         return cmd
+
+    def exclusion_pathspecs(self):
+        """
+        Convert the exclusions to git pathspecs. Each one is matched in any
+        directory, and if it names a directory (e.g. 'vendor' or 'vendor/'),
+        everything inside that directory is excluded too.
+        @returns: a list of git pathspec arguments
+        """
+        pathspecs = []
+        for exclusion in self.exclusions:
+            pattern = exclusion.strip().rstrip("/")
+            if pattern:
+                pathspecs.append(f":(exclude,glob)**/{pattern}")
+                pathspecs.append(f":(exclude,glob)**/{pattern}/**")
+        return pathspecs
+
+    def merge_log_command(self):
+        """
+        Build the git log command that lists the merge commits made directly on
+        the analyzed branch in the date range, with their authors.
+        Merges made inside other branches (e.g. merging main into a feature
+        branch to update it) are not on the branch's first-parent line, so they
+        are left out. File exclusions do not apply: a merge brings in a branch,
+        whichever files it touches.
+        @returns: the command as a list of arguments, ready for subprocess
+        """
+        return [
+            "git",
+            "log",
+            "--first-parent",
+            "--merges",
+            LOG_FORMAT,
+            *self.date_range_args(),
+        ]
+
+    def run_git_log(self, cmd):
+        """
+        Run a git log command and parse its output into per-commit records.
+        @param cmd: the command, from git_log_command or merge_log_command
+        @returns: a list of commit dictionaries, as returned by parse_log
+        """
+        self.verboseprint(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        return self.parse_log(result.stdout.decode("utf-8", errors="replace"))
 
     @staticmethod
     def parse_log(logs):
@@ -151,11 +209,8 @@ class GitLogsParser:
         Parse the git logs and extract a breakdown of the contributions of each contributing user.
         @returns: contribution stats of all users, as a list of dictionaries, one per user
         """
-        cmd = self.git_log_command()
-        self.verboseprint(f"Running command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, check=True)
-        logs = result.stdout.decode("utf-8", errors="replace")
-        commits = self.parse_log(logs)
+        commits = self.run_git_log(self.git_log_command())
+        merges = self.run_git_log(self.merge_log_command())
 
         # limit to the specified username, if any; otherwise all contributors
         if self.username:
@@ -175,23 +230,36 @@ class GitLogsParser:
                 "insertions": 0,
                 "deletions": 0,
                 "files": 0,
+                "merges": 0,
             }
 
-        # credit each commit to its author; a username given on the command
-        # line matches an author's exact name or email address
-        for commit in commits:
+        def entry_for(commit):
+            """
+            Find the stats entry to credit a commit to: its author's. A username
+            given on the command line matches an author's exact name or email.
+            """
             if self.username:
-                if self.username not in (commit["name"], commit["email"]):
-                    continue
-                entry = entries[self.username]
-            else:
-                entry = entries.get(commit["name"])
-                if entry is None:
-                    continue  # should not happen: every author is a contributor
-            entry["commits"] += 1
-            entry["files"] += commit["files"]
-            entry["insertions"] += commit["insertions"]
-            entry["deletions"] += commit["deletions"]
+                if self.username in (commit["name"], commit["email"]):
+                    return entries[self.username]
+                return None
+            # every author is a contributor, so this only misses if the history
+            # changed between the two git commands
+            return entries.get(commit["name"])
+
+        for commit in commits:
+            entry = entry_for(commit)
+            if entry is not None:
+                entry["commits"] += 1
+                entry["files"] += commit["files"]
+                entry["insertions"] += commit["insertions"]
+                entry["deletions"] += commit["deletions"]
+
+        # merges are counted only as merges, not commits; they add no lines or
+        # files, since the merged work is credited to its own commits
+        for merge in merges:
+            entry = entry_for(merge)
+            if entry is not None:
+                entry["merges"] += 1
 
         stats = []
         for entry in entries.values():
@@ -201,6 +269,7 @@ class GitLogsParser:
                 and entry["insertions"] == 0
                 and entry["deletions"] == 0
                 and entry["files"] == 0
+                and entry["merges"] == 0
             ):
                 continue
             stats.append(entry)

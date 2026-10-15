@@ -10,6 +10,7 @@ This script calculates the following, for each developer in each repository:
 - number of **lines added**
 - number of **lines deleted**
 - number of **files changed**
+- number of **merges** into the analyzed branch
 
 The results can be formatted as `csv`, `json`, or `markdown`.
 
@@ -37,7 +38,7 @@ optional arguments:
                         Start date in mm/dd/yyyy format
   -e END, --end END     End date in mm/dd/yyyy format
   -x EXCLUSIONS, --exclusions EXCLUSIONS
-                        A comma-separated string of files to exclude, e.g. --excusions "foo.zip, *.jpg, *.json"
+                        A comma-separated list of files, patterns or directories to exclude, e.g. --exclusions "foo.zip, *.jpg, vendor". Replaces the default list; use "" to exclude nothing
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
   -b BRANCH, --branch BRANCH
@@ -98,6 +99,24 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 ```
 
+### Excluding files
+
+By default, common generated and binary files are left out of the analysis: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv` and `*.json`. Use `-x` to give your own comma-separated list instead. It replaces the default list rather than adding to it.
+
+Each item can be a file name, a glob pattern or a directory, and is matched in any directory of the repository. A directory name, such as `vendor` or `vendor/`, excludes everything inside it. A path such as `docs/*.md` matches only inside directories with that name.
+
+```
+gitlogstats -rf repos.txt -x "*.json, *.lock, vendor, docs/*.md"
+```
+
+Exclude nothing:
+
+```
+gitlogstats -rf repos.txt -x ""
+```
+
+Excluded files are left out of the commit, line and file counts. A commit that only touches excluded files is not counted at all. Exclusions do not affect the merge count.
+
 ### Filter Contributors
 
 By default, every contributor in a repository's history is listed, with zeros for those who were inactive in the date range. Use `-c` to show only contributors with activity.
@@ -134,11 +153,21 @@ Use `-v` to print debugging information. It is written to standard error, so the
 
 ## How statistics are counted
 
-- **commits** — commits authored by the contributor in the date range, including merge commits. Commits that change no files, or only excluded files (`-x`), are not counted.
-- **insertions** / **deletions** — lines added and removed, as reported by `git log --shortstat`. Binary files and merge commits add no lines, so merged work is never counted twice.
+- **commits** — non-merge commits authored by the contributor in the date range. Commits that change no files, or only excluded files (`-x`), are not counted. Merge commits are counted under **merges** instead.
+- **insertions** / **deletions** — lines added and removed, as reported by `git log --shortstat`. Binary files add no lines, and merges add none either, so merged work is never counted twice.
 - **files** — the number of files each commit changed, summed over the contributor's commits.
+- **merges** — merge commits the contributor made directly on the analyzed branch in the date range. The author of a merge commit is the person who merged, so this covers merges made locally and pushed, and pull requests merged on GitHub, GitLab or Bitbucket with a merge commit.
 
-Each commit is credited to its author's name, after applying the repository's `.mailmap` if it has one. Commit messages are never read, so statistics are the same whether messages are one line, many lines, or empty.
+Some merges are not counted:
+
+- Merges that leave no merge commit: fast-forward merges, and pull requests merged with "Squash and merge" or "Rebase and merge". A squash commit counts as an ordinary commit by whoever made it.
+- Merges made inside another branch, such as merging `main` into a feature branch with `git pull` or GitHub's "Update branch" button. These keep a branch up to date rather than merge work into it.
+- Merges on other branches, unless that branch is analyzed with `-b`.
+- Local merges that were never pushed.
+
+A merge made on GitHub uses the person's GitHub profile name and email, which may differ from their local git settings. They can then appear under two names (see [Redundant usernames](#redundant-usernames)).
+
+Each commit is credited to its author's name, after applying the repository's `.mailmap` if it has one. Merges are credited the same way. Commit messages are never read, so statistics are the same whether messages are one line, many lines, or empty.
 
 ## Development
 
