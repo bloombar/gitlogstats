@@ -12,6 +12,8 @@ This script calculates the following, for each developer in each repository:
 - number of **files changed**
 - number of **merges** into the analyzed branch
 
+With `--github`, it also reports each developer's GitHub **pull requests** opened, merged and closed without merging (see [GitHub pull requests](#github-pull-requests)).
+
 The results can be formatted as `csv`, `json`, or `markdown`.
 
 ## Install
@@ -25,26 +27,36 @@ e.g. `pip install gitlogstats`, `pip3 install gitlogstats`, depending on your en
 The command `gitlogstats --help` shows the usage instructions:
 
 ```
-usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START] [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}] [-b BRANCH] [-v] [-c]
+usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START]
+                   [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}]
+                   [-b BRANCH] [-v] [-c] [--github]
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -r REPOSITORY, --repository REPOSITORY
                         the public URL of the repository whose logs to parse
   -rf REPOFILE, --repofile REPOFILE
-                        the path to simple text file with a list of repository URLs to parse
-  -u USER, --user USER  The git username (or email address) to report. Default is all contributing users
+                        the path to simple text file with a list of repository
+                        URLs to parse
+  -u USER, --user USER  The git username (or email address) to report. Default
+                        is all contributing users
   -s START, --start START
                         Start date in mm/dd/yyyy format
   -e END, --end END     End date in mm/dd/yyyy format
   -x EXCLUSIONS, --exclusions EXCLUSIONS
-                        A comma-separated list of files, patterns or directories to exclude, e.g. --exclusions "foo.zip, *.jpg, vendor". Replaces the default list; use "" to exclude nothing
+                        A comma-separated list of files, patterns or
+                        directories to exclude, e.g. --exclusions "foo.zip,
+                        *.jpg, vendor". Replaces the default list; use "" to
+                        exclude nothing
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
   -b BRANCH, --branch BRANCH
-                        The branch to checkout before compiling statistics. Defaults to the repository's default branch.
+                        The branch to parse, if not the default branch
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
+  --github              Also report GitHub pull requests opened, merged and
+                        closed per contributor, and match GitHub users to git
+                        authors. Needs the GitHub CLI (gh), signed in
 ```
 
 In case `gitlogstats` is not found as a command, even after installing, try `python -m gitlogstats` or `python3 -m gitlogstats` instead.
@@ -124,6 +136,46 @@ By default, every contributor in a repository's history is listed, with zeros fo
 ```
 gitlogstats -rf repos.txt -c
 ```
+
+### GitHub pull requests
+
+Add `--github` to also count each contributor's pull requests. Four columns are appended to every output format:
+
+| Column                | Meaning                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `github_username`     | the GitHub account matched to the contributor (never the display name), so you can check the matching |
+| `prs_opened`          | pull requests they opened in the date range, whatever their state now (drafts included)               |
+| `prs_merged`          | pull requests they authored that were merged in the date range, by anyone and in any way (squash too) |
+| `prs_closed_unmerged` | pull requests they authored that were closed without merging in the date range                        |
+
+```
+gitlogstats -r https://github.com/bloombar/gitlogstats.git --github
+```
+
+**Requirements.** Only `--github` needs the [GitHub CLI](https://cli.github.com) (`gh`); without the flag nothing changes and GitHub is never contacted. Install `gh`, then run `gh auth login`. The tool checks this before cloning anything. If it fails, nothing is printed to standard output, the exit status is 1 and one of these messages is printed to standard error:
+
+```
+gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install it from https://cli.github.com and run 'gh auth login', or run without --github.
+gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.
+```
+
+**Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests but has no commits is listed in a row of their own with an empty `username` and zero git statistics.
+
+**Matching GitHub users to git authors.** Each git author name is compared with the GitHub users active in the repository, trying these in order and stopping at the first that finds exactly one user:
+
+1. **Email.** The email is a GitHub `noreply` address containing the username, GitHub itself links one of the author's commits to an account, or the email is the public email of a GitHub profile.
+2. **Username.** The author name, or the part of the email before the `@`, is the GitHub username (ignoring case, and treating spaces, hyphens, underscores and dots as alike). The part before the `@` is skipped when it names a role rather than a person (such as `noreply`, `admin` or `info`), or when several author names in the repository share it (`alex@gmail…` and `alex@school…`), since it could belong to either.
+3. **Display name.** The author name is the GitHub profile name (ignoring case, accents, punctuation and word order, so `Grace Hopper` matches `Hopper, Grace`).
+
+If a step finds several users it is skipped as ambiguous and the next is tried. All git names matched to one GitHub user become one row: the `username` is the name with the most commits and the git statistics are added up. Use `-v` to see which step matched each name, the ambiguous and unmatched names, and how many `gh` calls were made. A wrong match can be fixed with a `.mailmap` file.
+
+**How the other options apply.**
+
+- `-s` / `-e`: each pull request count uses its own timestamp (opened, merged or closed) against the same inclusive local-time range as commits.
+- `-b`: only pull requests whose base branch is that branch are counted; without `-b`, all pull requests count.
+- `-u`: selects the combined row whose author names or emails equal the value exactly, or whose GitHub username equals it ignoring case. The whole combined row is reported, so `-u` with one email address also includes the person's commits under their other names and emails, and a value that matches nobody prints no row.
+- `-c`: removes only rows with no git activity and no pull requests.
+- `-x`: has no effect on pull requests.
 
 ### Formatting the results
 

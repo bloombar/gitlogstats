@@ -17,12 +17,30 @@
   family: CLI
   phase: 1
   status: Done
+- id: CLI-3
+  title: GitHub pull-request statistics
+  full: "--github adds GitHub pull-request statistics (STAT-8 to STAT-11) for
+    repositories hosted on github.com, appending the columns github_username,
+    prs_opened, prs_merged, prs_closed_unmerged to every output format. Without
+    --github, the output and behaviour are unchanged, GitHub is never contacted
+    and the GitHub CLI (gh) is not needed. With --github, the GitHub API is
+    called through gh api, so gh must be installed and signed in. This is
+    checked before any repository is cloned; if it fails, nothing is printed to
+    standard output, the tool exits with status 1, and one plain message on
+    standard error says why and what to do — no stack trace: gh not found:
+    gitlogstats: --github needs the GitHub CLI…"
+  section: §5 Command-Line Interface
+  family: CLI
+  phase: 1
+  status: Done
 - id: FILT-1
   title: Date range
   full: "-s/--start and -e/--end (format mm/dd/yyyy) limit the analysis to commits
     whose commit date falls between the start of the start date and the end of
     the end date, inclusive, in local time. Defaults: one year ago until today.
-    The output records the requested start and end dates on every row."
+    The output records the requested start and end dates on every row. With
+    --github, each pull request count is filtered by its own timestamp in the
+    same range (CLI-3)."
   section: §3 Filtering
   family: FILT
   phase: 1
@@ -31,7 +49,8 @@
   title: Single contributor
   full: -u/--user <name> reports only the contributor whose author name or email
     address matches exactly. Without -u, every contributor in the repository's
-    history is reported.
+    history is reported. With --github, it selects the combined row, and a value
+    may also be the GitHub username (ignoring case); see CLI-3.
   section: §3 Filtering
   family: FILT
   phase: 1
@@ -55,7 +74,8 @@
 - id: FILT-4
   title: Remove inactive contributors
   full: By default, contributors with no activity in the date range are listed
-    with zeros. -c/--clean removes them.
+    with zeros. -c/--clean removes them. With --github, only rows with neither
+    git nor pull-request activity are removed (CLI-3).
   section: §3 Filtering
   family: FILT
   phase: 1
@@ -67,7 +87,10 @@
     end_date, commits, insertions, deletions, files, merges. New fields are
     added at the end so existing column positions do not change. Values
     containing commas, quotes or line breaks are quoted. The header is printed
-    even when there are no rows, and the output ends with a single newline.
+    even when there are no rows, and the output ends with a single newline. With
+    --github, the columns github_username, prs_opened, prs_merged,
+    prs_closed_unmerged are appended, and are in the header even when there are
+    no rows (CLI-3).
   section: §4 Output
   family: OUT
   phase: 1
@@ -101,7 +124,9 @@
   title: Verbose diagnostics
   full: -v/--verbose prints debugging information (directories, the git commands
     run, contributors found) to standard error, so standard output stays
-    machine-readable.
+    machine-readable. With --github, it also prints how each author name was
+    matched to a GitHub user, the ambiguous and unmatched names, and the number
+    of gh API calls made for each repository (CLI-3).
   section: §4 Output
   family: OUT
   phase: 1
@@ -176,7 +201,9 @@
   title: Branch selection
   full: -b/--branch <name> checks out the given branch before statistics are
     computed. Without -b, the repository's default branch is used — including
-    when an earlier run left the cached clone on another branch.
+    when an earlier run left the cached clone on another branch. With --github,
+    it also limits which pull requests are counted to those whose base branch is
+    that branch (CLI-3).
   section: §1 Repository Selection
   family: REPO
   phase: 1
@@ -259,6 +286,53 @@
   family: STAT
   phase: 1
   status: Done
+- id: STAT-8
+  title: Pull requests opened
+  full: With --github (CLI-3), for each contributor, the number of pull requests
+    they authored on GitHub whose creation time (created_at) falls in the date
+    range, whatever their state now (open, merged or closed; drafts included).
+    Reported in a prs_opened column.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-9
+  title: Pull requests merged
+  full: With --github, for each contributor, the number of pull requests they
+    authored that were merged (merged_at set) in the date range, whoever merged
+    them. Reported in a prs_merged column. Unlike merges (STAT-7), this counts
+    squash and rebase merges too, since GitHub records them as merged pull
+    requests.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-10
+  title: Pull requests closed without merging
+  full: With --github, for each contributor, the number of pull requests they
+    authored that were closed without being merged (state closed and merged_at
+    not set), with a closing time (closed_at) in the date range. Reported in a
+    prs_closed_unmerged column.
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-11
+  title: Matching GitHub users to git authors
+  full: "With --github, each pull-request author (a GitHub username) is matched to
+    the git identities (author name and email) in the repository's history. Each
+    git identity is tried against the GitHub users active in that repository
+    (pull-request authors and the accounts GitHub links to its commits), tier by
+    tier, stopping at the first tier that finds exactly one GitHub user: 1.
+    Email. The email is a GitHub noreply address
+    (12345+login@users.noreply.github.com or login@users.noreply.github.com); or
+    GitHub links one of the identity's commits to an account (the commit's
+    author.login, which covers private emails GitHub knows but does not
+    publish); or the email equals a candidate's public profile email…"
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
 - id: FUTURE-author-date-filtering
   title: Author-date filtering
   full: Author-date filtering — offer filtering by author date, so rebased or
@@ -272,6 +346,30 @@
   title: Contributor aliases
   full: Contributor aliases — let users merge several names or emails into one
     contributor from the command line, for repositories without a .mailmap.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-github-enterprise-hosts
+  title: GitHub Enterprise hosts
+  full: GitHub Enterprise hosts — extend --github to repositories on GitHub
+    Enterprise Server, via gh api --hostname or a configurable API URL.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-github-only-mode
+  title: GitHub-only mode
+  full: GitHub-only mode — report pull-request statistics without computing git
+    statistics, for faster runs over large batches.
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-github-without-the-gh-cli
+  title: GitHub without the gh CLI
+  full: GitHub without the gh CLI — let --github call the GitHub API directly with
+    a GITHUB_TOKEN, for users who cannot install gh.
   section: §7 Future Work
   family: FUTURE
   phase: 2
@@ -304,6 +402,14 @@
   title: Private repositories
   full: Private repositories — document and support authenticated cloning of
     private repositories (e.g. via a token or SSH agent).
+  section: §7 Future Work
+  family: FUTURE
+  phase: 2
+  status: Todo
+- id: FUTURE-pull-request-reviews-and-mergers
+  title: Pull-request reviews and mergers
+  full: Pull-request reviews and mergers — report who reviewed and who merged each
+    pull request, in addition to who opened it.
   section: §7 Future Work
   family: FUTURE
   phase: 2
