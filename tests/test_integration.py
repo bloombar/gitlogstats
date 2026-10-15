@@ -42,18 +42,24 @@ class Repo:
         with open(full, mode) as f:
             f.write(content)
 
-    def commit(self, author, message, date="2024-03-10 12:00:00", email=None, extra=()):
-        """Stage everything and commit it as *author* on *date* (local time)."""
+    @staticmethod
+    def identity(author, date, email=None, committer=None):
+        """Environment for a git command run as *author* (and *committer*) on *date*."""
         email = email or f"{author.split()[0].lower()}@example.com"
-        env = dict(
+        committer_name, committer_email = committer or (author, email)
+        return dict(
             os.environ,
             GIT_AUTHOR_NAME=author,
             GIT_AUTHOR_EMAIL=email,
-            GIT_COMMITTER_NAME=author,
-            GIT_COMMITTER_EMAIL=email,
+            GIT_COMMITTER_NAME=committer_name,
+            GIT_COMMITTER_EMAIL=committer_email,
             GIT_AUTHOR_DATE=date,
             GIT_COMMITTER_DATE=date,
         )
+
+    def commit(self, author, message, date="2024-03-10 12:00:00", email=None, extra=()):
+        """Stage everything and commit it as *author* on *date* (local time)."""
+        env = self.identity(author, date, email)
         self.git("add", "-A")
         self.git(
             "commit",
@@ -65,6 +71,27 @@ class Repo:
             *extra,
             env=env,
         )
+
+    def merge(
+        self,
+        author,
+        *branches,
+        message="Merge",
+        date="2024-03-10 12:00:00",
+        email=None,
+        committer=None,
+        options=("--no-ff",),
+    ):
+        """Merge *branches* into the current branch as *author* on *date*."""
+        env = self.identity(author, date, email, committer)
+        self.git("merge", "-q", *options, "-m", message, *branches, env=env)
+
+    def branch(self, name, start=None):
+        """Create and switch to a new branch."""
+        self.git("checkout", "-q", "-b", name, *([start] if start else []))
+
+    def switch(self, name):
+        self.git("checkout", "-q", name)
 
 
 def lines(n, prefix="line"):
@@ -178,7 +205,7 @@ class TestKindsOfChange:
         repo.commit("Alice", "nested")
         assert counts(stats(repo, monkeypatch)["Alice"]) == (1, 2, 5, 0)
 
-    def test_merge_commit_counts_as_commit_without_duplicating_stats(
+    def test_merge_commit_counted_as_merge_without_duplicating_stats(
         self, repo, monkeypatch
     ):
         repo.write("base.txt", lines(1))
@@ -208,8 +235,11 @@ class TestKindsOfChange:
             env=env,
         )
         result = stats(repo, monkeypatch)
-        assert counts(result["Alice"]) == (3, 2, 3, 0)  # base + main work + merge
+        # base + main work; the merge is counted only as a merge
+        assert counts(result["Alice"]) == (2, 2, 3, 0)
+        assert result["Alice"]["merges"] == 1
         assert counts(result["Bob"]) == (1, 1, 4, 0)
+        assert result["Bob"]["merges"] == 0
 
     def test_empty_commit_is_ignored(self, repo, monkeypatch):
         repo.write("a.txt", lines(1))
@@ -376,10 +406,10 @@ class TestCommandLine:
         rows = [l for l in out.splitlines() if l]
         assert (
             rows[0]
-            == "username,repository,start_date,end_date,commits,insertions,deletions,files"
+            == "username,repository,start_date,end_date,commits,insertions,deletions,files,merges"
         )
-        assert "Alice,one,01/01/2024,12/31/2024,1,3,0,1" in rows
-        assert "Bob,one,01/01/2024,12/31/2024,1,1,0,1" in rows
+        assert "Alice,one,01/01/2024,12/31/2024,1,3,0,1,0" in rows
+        assert "Bob,one,01/01/2024,12/31/2024,1,1,0,1,0" in rows
 
     def test_repofile_json_is_one_array(self, remotes, tmp_path, monkeypatch, capsys):
         repofile = tmp_path / "repos.txt"
@@ -513,6 +543,7 @@ class TestOutputFormat:
         "insertions",
         "deletions",
         "files",
+        "merges",
     ]
 
     @pytest.fixture
@@ -541,18 +572,18 @@ class TestOutputFormat:
     def test_single_repository_csv(self, remotes, tmp_path, monkeypatch, capsys):
         out = self.run(monkeypatch, capsys, tmp_path, "-r", remotes[0].path)
         assert out == (
-            "username,repository,start_date,end_date,commits,insertions,deletions,files\n"
-            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1\n'
-            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1\n'
+            "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
+            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
+            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
         )
 
     def test_multiple_repositories_csv(self, remotes, tmp_path, monkeypatch, capsys):
         out = self.run(monkeypatch, capsys, tmp_path, "-rf", str(remotes[2]))
         assert out == (
-            "username,repository,start_date,end_date,commits,insertions,deletions,files\n"
-            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1\n'
-            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1\n'
-            '"Smith, Jo",beta.repo,01/01/2024,12/31/2024,1,4,0,1\n'
+            "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
+            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
+            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
+            '"Smith, Jo",beta.repo,01/01/2024,12/31/2024,1,4,0,1,0\n'
         )
 
     def test_empty_csv_is_header_only(self, remotes, tmp_path, monkeypatch, capsys):
@@ -560,7 +591,7 @@ class TestOutputFormat:
             monkeypatch, capsys, tmp_path, "-rf", str(remotes[2]), "-u", "X", "-c"
         )
         assert out == (
-            "username,repository,start_date,end_date,commits,insertions,deletions,files\n"
+            "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
         )
 
     @pytest.mark.parametrize("multi", [False, True])
@@ -590,3 +621,337 @@ class TestOutputFormat:
             "json",
         )
         assert out == "[]\n"
+
+
+# ─── Merges ──────────────────────────────────────────────────────────────────
+
+
+def feature(repo, name, author, files, start=None):
+    """Make a branch *name* with one commit by *author* adding *files* ({path: lines}), then return to main."""
+    repo.branch(name, start)
+    for path, n in files.items():
+        repo.write(path, lines(n, name))
+    repo.commit(author, f"{name} work")
+    repo.switch("main")
+
+
+@pytest.fixture
+def base(repo):
+    repo.write("base.txt", lines(1))
+    repo.commit("Alice", "base")
+    return repo
+
+
+class TestMerges:
+    def test_local_no_ff_merge_counted_for_its_author(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.merge("Carol", "f", message="Merge branch 'f'\n\nwith a body")
+        result = stats(base, monkeypatch)
+        assert result["Carol"]["merges"] == 1
+        assert counts(result["Carol"]) == (0, 0, 0, 0)  # merges are not commits
+        assert result["Bob"]["merges"] == 0 and counts(result["Bob"]) == (1, 1, 3, 0)
+
+    def test_merge_when_main_did_not_move(self, base, monkeypatch):
+        # regression: git's history simplification used to hide this merge
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.merge("Carol", "f")
+        assert stats(base, monkeypatch)["Carol"]["merges"] == 1
+
+    def test_merge_when_both_sides_moved(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.write("main.txt", lines(1))
+        base.commit("Alice", "main work")
+        base.merge("Carol", "f")
+        assert stats(base, monkeypatch)["Carol"]["merges"] == 1
+
+    def test_merge_on_github_credited_to_the_person_who_merged(self, base, monkeypatch):
+        # a pull request merged in the GitHub web interface: the author is the
+        # person who clicked Merge, the committer is GitHub itself
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.merge(
+            "Carol",
+            "f",
+            message="Merge pull request #1 from team/f",
+            committer=("GitHub", "noreply@github.com"),
+        )
+        result = stats(base, monkeypatch)
+        assert result["Carol"]["merges"] == 1
+        assert "GitHub" not in result
+
+    def test_several_merges_by_several_people(self, base, monkeypatch):
+        for i, merger in enumerate(["Carol", "Carol", "Dan"]):
+            feature(base, f"f{i}", "Bob", {f"f{i}.txt": 1})
+            base.merge(merger, f"f{i}")
+        result = stats(base, monkeypatch)
+        assert (result["Carol"]["merges"], result["Dan"]["merges"]) == (2, 1)
+        assert result["Bob"]["commits"] == 3
+
+    def test_octopus_merge_counted_once(self, base, monkeypatch):
+        feature(base, "a", "Bob", {"a.txt": 1})
+        feature(base, "b", "Bob", {"b.txt": 1})
+        base.merge("Carol", "a", "b", options=())
+        assert stats(base, monkeypatch)["Carol"]["merges"] == 1
+
+    def test_merge_of_conflicting_branches(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"shared.txt": 2})
+        base.write("shared.txt", lines(3, "main"))
+        base.commit("Alice", "main side")
+        with pytest.raises(subprocess.CalledProcessError):
+            base.merge("Carol", "f")
+        base.write("shared.txt", lines(1, "resolved"))
+        base.git("add", "-A")
+        env = Repo.identity("Carol", "2024-03-10 12:00:00")
+        base.git("commit", "-q", "--no-edit", env=env)
+        result = stats(base, monkeypatch)
+        assert result["Carol"]["merges"] == 1
+        assert counts(result["Carol"]) == (0, 0, 0, 0)
+
+    def test_sync_merge_inside_feature_branch_not_counted(self, base, monkeypatch):
+        # e.g. `git pull` or GitHub's "Update branch": main merged into a feature
+        base.branch("f")
+        base.write("f.txt", lines(2))
+        base.commit("Bob", "f work")
+        base.switch("main")
+        base.write("main.txt", lines(1))
+        base.commit("Alice", "main work")
+        base.switch("f")
+        base.merge("Bob", "main", message="Merge branch 'main' into f")
+        base.switch("main")
+        base.merge("Carol", "f")
+        result = stats(base, monkeypatch)
+        assert result["Bob"]["merges"] == 0
+        assert result["Carol"]["merges"] == 1
+
+    def test_fast_forward_merge_not_counted(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.merge("Carol", "f", options=("--ff-only",))
+        result = stats(base, monkeypatch)
+        # no merge commit exists, so the person who merged leaves no trace
+        assert "Carol" not in result
+        assert all(e["merges"] == 0 for e in result.values())
+        assert counts(result["Bob"]) == (1, 1, 3, 0)
+
+    def test_squash_merge_not_counted(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.git("merge", "-q", "--squash", "f")
+        base.commit("Carol", "Squashed f")
+        result = stats(base, monkeypatch)
+        # the squash commit is an ordinary commit by the person who made it,
+        # and the branch's own commits never reach main
+        assert all(e["merges"] == 0 for e in result.values())
+        assert counts(result["Carol"]) == (1, 1, 3, 0)
+        assert "Bob" not in result
+
+    def test_rebase_merge_not_counted(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 3})
+        base.write("main.txt", lines(1))
+        base.commit("Alice", "main work")
+        base.switch("f")
+        base.git(
+            "rebase", "-q", "main", env=Repo.identity("Bob", "2024-03-10 13:00:00")
+        )
+        base.switch("main")
+        base.merge("Carol", "f", options=("--ff-only",))
+        result = stats(base, monkeypatch)
+        assert "Carol" not in result
+        assert all(e["merges"] == 0 for e in result.values())
+        assert result["Bob"]["commits"] == 1
+
+    def test_merge_on_another_branch_counted_only_when_that_branch_is_analyzed(
+        self, base, monkeypatch
+    ):
+        base.branch("develop")
+        feature(base, "f", "Bob", {"f.txt": 1}, start="develop")
+        base.switch("develop")
+        base.merge("Carol", "f")
+        base.switch("main")
+        assert "Carol" not in stats(base, monkeypatch)
+        base.switch("develop")
+        assert stats(base, monkeypatch)["Carol"]["merges"] == 1
+
+    def test_merges_respect_the_date_range(self, base, monkeypatch):
+        for i, date in enumerate(
+            [
+                "2024-02-29 23:59:59",
+                "2024-03-01 00:00:01",
+                "2024-03-31 23:59:58",
+                "2024-04-01 00:00:01",
+            ]
+        ):
+            feature(base, f"f{i}", "Bob", {f"f{i}.txt": 1})
+            base.merge("Carol", f"f{i}", date=date)
+        carol = stats(base, monkeypatch, start="03/01/2024", end="03/31/2024")["Carol"]
+        assert carol["merges"] == 2
+
+    def test_username_option_by_name_and_email(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 1})
+        base.merge("Carol", "f", email="carol@example.com")
+        assert stats(base, monkeypatch, username="Carol")["Carol"]["merges"] == 1
+        by_email = stats(base, monkeypatch, username="carol@example.com")
+        assert by_email["carol@example.com"]["merges"] == 1
+        assert stats(base, monkeypatch, username="Car")["Car"]["merges"] == 0
+
+    def test_clean_keeps_someone_who_only_merged(self, base, monkeypatch):
+        feature(base, "f", "Bob", {"f.txt": 1})
+        base.merge("Carol", "f")
+        result = stats(base, monkeypatch, clean=True)
+        assert result["Carol"]["merges"] == 1
+
+    def test_mailmap_applies_to_merges(self, base, monkeypatch):
+        base.write(
+            ".mailmap",
+            "Carol <carol@example.com> <12345+carol@users.noreply.github.com>\n",
+        )
+        base.commit("Carol", "mailmap", email="carol@example.com")
+        feature(base, "f", "Bob", {"f.txt": 1})
+        base.merge("carol-gh", "f", email="12345+carol@users.noreply.github.com")
+        result = stats(base, monkeypatch)
+        assert "carol-gh" not in result
+        assert (result["Carol"]["commits"], result["Carol"]["merges"]) == (1, 1)
+
+    def test_totals_across_contributors(self, base, monkeypatch):
+        feature(base, "a", "Bob", {"a.txt": 2})
+        base.merge("Carol", "a")
+        feature(base, "b", "Dan", {"b.txt": 3})
+        base.merge("Alice", "b")
+        result = stats(base, monkeypatch)
+        assert sum(e["merges"] for e in result.values()) == 2
+        assert sum(e["commits"] for e in result.values()) == 3  # base, a, b
+        assert sum(e["insertions"] for e in result.values()) == 6
+
+
+# ─── Exclusions: none, one, several, and with merges ─────────────────────────
+
+
+class TestExclusionCounts:
+    @pytest.fixture
+    def mixed(self, base):
+        """One commit per kind of file, all by Alice, on top of base.txt (1 line)."""
+        for path, n in [
+            ("code.py", 2),
+            ("data.json", 4),
+            ("nested/deep/config.json", 8),
+            ("photo.jpg", 16),
+            ("vendor/lib.js", 32),
+            ("docs/guide.md", 64),
+            ("README.md", 128),
+            ("my notes.txt", 256),
+        ]:
+            base.write(path, lines(n))
+            base.commit("Alice", f"add {path}")
+        return base
+
+    @pytest.mark.parametrize(
+        "exclusions,expected",
+        [
+            ([], (9, 9, 511)),
+            (["*.json"], (7, 7, 499)),
+            (["config.json"], (8, 8, 503)),
+            (["*.json", "*.jpg"], (6, 6, 483)),
+            (["*.json", "*.jpg", "*.md"], (4, 4, 291)),
+            (["vendor"], (8, 8, 479)),
+            (["vendor/"], (8, 8, 479)),
+            (["vendor/*"], (8, 8, 479)),
+            (["docs/*.md"], (8, 8, 447)),
+            (["my notes.txt"], (8, 8, 255)),
+            (["*.nothing"], (9, 9, 511)),
+        ],
+        ids=lambda v: repr(v),
+    )
+    def test_exclusion_combinations(self, mixed, monkeypatch, exclusions, expected):
+        alice = stats(mixed, monkeypatch, exclusions=exclusions)["Alice"]
+        assert (alice["commits"], alice["files"], alice["insertions"]) == expected
+
+    def test_commit_partly_excluded_counts_only_the_rest(self, base, monkeypatch):
+        base.write("code.py", lines(2))
+        base.write("photo.jpg", lines(10))
+        base.write("data.json", lines(10))
+        base.commit("Alice", "mixed")
+        alice = stats(base, monkeypatch, exclusions=["*.jpg", "*.json"])["Alice"]
+        assert counts(alice) == (2, 2, 3, 0)  # base + mixed, minus excluded files
+
+    def test_exclusions_do_not_affect_merges(self, base, monkeypatch):
+        feature(base, "code", "Bob", {"code.py": 2})
+        base.merge("Carol", "code")
+        feature(base, "images", "Bob", {"a.jpg": 5, "b.jpg": 5})
+        base.merge("Carol", "images")
+        for exclusions in ([], ["*.jpg"], ["*.jpg", "*.py", "*.txt"]):
+            result = stats(base, monkeypatch, exclusions=exclusions)
+            assert result["Carol"]["merges"] == 2, exclusions
+
+    def test_exclusions_with_merges_count_commits_correctly(self, base, monkeypatch):
+        # regression: with a path filter, git used to drop merge commits and
+        # could hide commits behind them; counts must not depend on that
+        feature(base, "code", "Bob", {"code.py": 2})
+        base.merge("Carol", "code")  # main did not move
+        feature(base, "images", "Bob", {"a.jpg": 5})
+        base.write("main.txt", lines(1))
+        base.commit("Alice", "main work")
+        base.merge("Carol", "images")
+        excluded = stats(base, monkeypatch, exclusions=["*.jpg"])
+        assert counts(excluded["Bob"]) == (1, 1, 2, 0)  # images commit excluded
+        assert counts(excluded["Alice"]) == (2, 2, 2, 0)
+        assert excluded["Carol"]["merges"] == 2
+        everything = stats(base, monkeypatch, exclusions=[])
+        assert counts(everything["Bob"]) == (2, 2, 7, 0)
+        assert everything["Carol"]["merges"] == 2
+
+
+class TestExclusionOption:
+    """The -x option on the command line: default, none, one, several."""
+
+    @pytest.fixture
+    def remote(self, tmp_path):
+        r = Repo(tmp_path / "remotes" / "proj")
+        for path, n in [
+            ("code.py", 1),
+            ("data.json", 2),
+            ("photo.jpg", 4),
+            ("notes.md", 8),
+        ]:
+            r.write(path, lines(n))
+            r.commit("Alice", f"add {path}")
+        r.branch("f")
+        r.write("f.py", lines(16))
+        r.commit("Bob", "f")
+        r.switch("main")
+        r.merge("Carol", "f")
+        return r
+
+    def run(self, monkeypatch, capsys, cwd, remote, *argv):
+        monkeypatch.chdir(cwd)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "gitlogstats",
+                "-r",
+                remote.path,
+                "-s",
+                "01/01/2024",
+                "-e",
+                "12/31/2024",
+                "-f",
+                "json",
+                *argv,
+            ],
+        )
+        main()
+        return {e["username"]: e for e in json.loads(capsys.readouterr().out)}
+
+    @pytest.mark.parametrize(
+        "argv,alice",
+        [
+            ([], (2, 9)),  # defaults exclude *.json and *.jpg
+            (["-x", ""], (4, 15)),  # no exclusions at all
+            (["-x", "*.md"], (3, 7)),  # replaces the defaults
+            (["-x", "*.json,*.jpg,*.md"], (1, 1)),
+            (["-x", " *.json , *.jpg ,, *.md "], (1, 1)),  # spaces, empty items
+        ],
+        ids=["default", "none", "one", "several", "messy"],
+    )
+    def test_exclusions(self, remote, tmp_path, monkeypatch, capsys, argv, alice):
+        result = self.run(monkeypatch, capsys, tmp_path, remote, *argv)
+        assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == alice
+        assert result["Bob"]["commits"] == 1
+        assert result["Carol"]["merges"] == 1

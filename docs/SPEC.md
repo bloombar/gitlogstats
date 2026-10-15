@@ -43,7 +43,7 @@ Repositories are cloned into a `repos/` directory under the current working dire
 
 #### STAT-1 Commit count
 
-For each contributor, the number of commits they authored in the date range. Merge commits count as commits. Commits that change no files (empty commits) and commits that only touch excluded files (FILT-3) are not counted.
+For each contributor, the number of non-merge commits they authored in the date range. Merge commits are counted separately (STAT-7), not as commits. Commits that change no files (empty commits) and commits that only touch excluded files (FILT-3) are not counted. The count does not depend on git's history simplification: commits are never hidden because of how the exclusions interact with merges.
 
 **Status:** Done
 
@@ -77,6 +77,12 @@ Author names are taken after applying the repository's `.mailmap`, so a develope
 
 **Status:** Done
 
+#### STAT-7 Merge count
+
+For each contributor, the number of merge commits they authored directly on the analyzed branch (its first-parent line) in the date range, reported in a `merges` column. The author of a merge commit is the person who merged, so this covers merges made locally and pushed, and pull requests merged on GitHub, GitLab or Bitbucket with a merge commit, where the hosting service is only the committer. Octopus merges count once. Not counted: fast-forward, squash and rebase merges (no merge commit exists); merges made inside other branches, such as merging the main branch into a feature branch to update it; merges on branches other than the analyzed one; and local merges that were never pushed. File exclusions (FILT-3) do not affect merges. Merges are not counted as commits and add no lines or files.
+
+**Status:** Done
+
 ### 3. Filtering
 
 #### FILT-1 Date range
@@ -93,7 +99,7 @@ Author names are taken after applying the repository's `.mailmap`, so a develope
 
 #### FILT-3 File exclusions
 
-`-x/--exclusions` takes a comma-separated list of file names or glob patterns to leave out of the analysis, matched in any directory. By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
+`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory. A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing. Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
 
 **Status:** Done
 
@@ -107,7 +113,7 @@ By default, contributors with no activity in the date range are listed with zero
 
 #### OUT-1 CSV output
 
-`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files`. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline.
+`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline.
 
 **Status:** Done
 
