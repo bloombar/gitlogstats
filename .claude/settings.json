@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "allow": ["Bash(npm run board:derive*)", "Bash(npm run board:sync*)"]
+  },
   "hooks": {
     "PreToolUse": [
       {
