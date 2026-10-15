@@ -116,8 +116,11 @@
   status: Done
 - id: PKG-2
   title: Continuous integration and release
-  full: GitHub Actions builds the package on every push, on Python 3.9 and 3.11,
-    and publishes it to PyPI.
+  full: GitHub Actions builds the package on Python 3.9 and 3.11 for every pull
+    request into master and every push to master. It publishes to PyPI only when
+    a pull request is merged into master and the build of the merged code
+    passes; pushes to other branches publish nothing. A merge whose version is
+    already on PyPI (no version bump) skips the upload instead of failing.
   section: §6 Packaging & Quality
   family: PKG
   phase: 1
@@ -134,12 +137,13 @@
   status: Done
 - id: PKG-4
   title: Run tests in CI
-  full: The CI workflow runs the test suite on every push and stops the release if
-    any test fails. (Today it builds and publishes without running tests.)
+  full: The CI workflow runs the Python test suite (pytest) on every pull request
+    into master and every push to master, and on the merged code before a
+    release; a failing test stops the release.
   section: §6 Packaging & Quality
   family: PKG
   phase: 1
-  status: Todo
+  status: Done
 - id: REPO-1
   title: Single repository
   full: -r/--repository <url> analyzes one repository. Any URL or path that git
