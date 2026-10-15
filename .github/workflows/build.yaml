@@ -1,16 +1,31 @@
 name: CI / CD
-on: [push]
+# CI runs on every pull request into master and on every push to master.
+# Delivery to PyPI happens only when a pull request is merged into master,
+# and only if the tests pass on the merged code (PKG-2, PKG-4).
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, closed]
+permissions:
+  contents: read
 jobs:
   build:
+    # a pull request closed without merging needs no checks
+    if: github.event.action != 'closed' || github.event.pull_request.merged
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       matrix:
-        python-version: ["3.9", "3.11"]
+        python-version: ['3.9', '3.11']
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          # after a merge, test the merge commit that landed on master
+          ref: ${{ github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.sha }}
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -18,29 +33,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install --user pipenv
           pipenv --python python install --dev --skip-lock
+      - name: Run tests
+        run: |
+          pipenv run python -m pytest -q
       - name: Build package
         run: |
           pipenv run python -m build .
-      - name: Turn on 'editable' mode
-        run: |
-          pipenv install -e .
   deliver:
+    # only a merged pull request is released, and only after build passed
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v3
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --user pipenv
-          pipenv install pytest
-          pipenv install
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Build package
         run: |
-          pipenv install build
-          pipenv run python -m build .
+          python -m pip install --upgrade pip build
+          python -m build .
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+          # a merge without a version bump (e.g. tooling only) skips the upload
+          skip-existing: true
