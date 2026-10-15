@@ -3,7 +3,11 @@ import subprocess
 import argparse
 import datetime
 import re
+import sys
 from . import GitLogsParser
+from .git_logs_parser import FIELDNAMES
+from .github import GITHUB_FIELDNAMES, GitHubUnavailable, check_gh
+from .github_stats import github_rows
 
 
 def valid_date(value):
@@ -135,6 +139,14 @@ def main():
         default=False,
         action="store_true",
     )
+    parser.add_argument(
+        "--github",
+        help="Also report GitHub pull requests opened, merged and closed per "
+        "contributor, and match GitHub users to git authors. Needs the GitHub CLI "
+        "(gh), signed in",
+        default=False,
+        action="store_true",
+    )
     args = parser.parse_args()
 
     if datetime.datetime.strptime(args.start, "%m/%d/%Y") > datetime.datetime.strptime(
@@ -144,6 +156,14 @@ def main():
 
     # split up comma-separated string into list, ignoring empty items
     args.exclusions = [x.strip() for x in re.split(r",", args.exclusions) if x.strip()]
+
+    # CLI-3: check the GitHub CLI before anything is created or cloned
+    if args.github:
+        try:
+            check_gh()
+        except GitHubUnavailable as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
 
     # deal with repofile, if specified
     repository_urls = [args.repository]
@@ -193,20 +213,28 @@ def main():
                 ["git", "pull"], capture_output=True, check=True
             )  # get the latest code from github
 
+        # with --github, -u and -c are applied after GitHub users are combined
         last_parser = GitLogsParser(
             repo=repo_dir,
             start=args.start,
             end=args.end,
-            username=args.user,
+            username=None if args.github else args.user,
             exclusions=args.exclusions,
             verbose=args.verbose,
-            clean=args.clean,
+            clean=False if args.github else args.clean,
         )
-        all_results.extend(last_parser.parse())  # collect across repos
+        rows = last_parser.parse()
+        if args.github:
+            rows = github_rows(
+                last_parser, rows, repo_url, last_parser.get_identities(), args
+            )
+        all_results.extend(rows)  # collect across repos
 
     # emit a single table (or JSON array) covering all repositories
     if last_parser is not None:
-        output = last_parser.format_results(all_results, args.format)
+        # an empty CSV table still gets the GitHub columns with --github
+        fieldnames = FIELDNAMES + GITHUB_FIELDNAMES if args.github else None
+        output = last_parser.format_results(all_results, args.format, fieldnames)
         # end with exactly one newline: CSV and Markdown output already has one
         print(output, end="" if output.endswith("\n") else "\n")
 

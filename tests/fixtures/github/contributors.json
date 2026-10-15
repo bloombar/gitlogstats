@@ -1,0 +1,4 @@
+[
+  {"login": "alice-dev", "id": 1001, "type": "User", "contributions": 12},
+  {"login": "bob-codes", "id": 1002, "type": "User", "contributions": 3}
+]

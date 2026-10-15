@@ -35,7 +35,7 @@ Repositories are cloned into a `repos/` directory under the current working dire
 
 #### REPO-4 Branch selection
 
-`-b/--branch <name>` checks out the given branch before statistics are computed. Without `-b`, the repository's default branch is used — including when an earlier run left the cached clone on another branch.
+`-b/--branch <name>` checks out the given branch before statistics are computed. Without `-b`, the repository's default branch is used — including when an earlier run left the cached clone on another branch. With `--github`, it also limits which pull requests are counted to those whose base branch is that branch (CLI-3).
 
 **Status:** Done
 
@@ -83,17 +83,48 @@ For each contributor, the number of merge commits they authored directly on the 
 
 **Status:** Done
 
+#### STAT-8 Pull requests opened
+
+With `--github` (CLI-3), for each contributor, the number of pull requests they authored on GitHub whose creation time (`created_at`) falls in the date range, whatever their state now (open, merged or closed; drafts included). Reported in a `prs_opened` column.
+
+**Status:** Done
+
+#### STAT-9 Pull requests merged
+
+With `--github`, for each contributor, the number of pull requests they authored that were merged (`merged_at` set) in the date range, whoever merged them. Reported in a `prs_merged` column. Unlike merges (STAT-7), this counts squash and rebase merges too, since GitHub records them as merged pull requests.
+
+**Status:** Done
+
+#### STAT-10 Pull requests closed without merging
+
+With `--github`, for each contributor, the number of pull requests they authored that were closed without being merged (`state` closed and `merged_at` not set), with a closing time (`closed_at`) in the date range. Reported in a `prs_closed_unmerged` column.
+
+**Status:** Done
+
+#### STAT-11 Matching GitHub users to git authors
+
+With `--github`, each pull-request author (a GitHub username) is matched to the git identities (author name and email) in the repository's history. Each git identity is tried against the GitHub users active in that repository (pull-request authors and the accounts GitHub links to its commits), tier by tier, stopping at the first tier that finds exactly one GitHub user:
+
+1. **Email.** The email is a GitHub `noreply` address (`12345+login@users.noreply.github.com` or `login@users.noreply.github.com`); or GitHub links one of the identity's commits to an account (the commit's `author.login`, which covers private emails GitHub knows but does not publish); or the email equals a candidate's public profile email (case-insensitive).
+2. **Username.** The author name, or the email's local part (before `@`), equals a candidate's GitHub username, ignoring case and treating spaces, hyphens, underscores and dots as the same (`Ada Lovelace` matches `Ada-Lovelace`). An email local part is not used when it names a role rather than a person (such as `noreply`, `admin` or `info`), or when it is shared by several author names in the repository (`alex@gmail…` and `alex@school…`), since it could belong to either.
+3. **Display name.** The author name equals a candidate's GitHub display name, ignoring case, accents, repeated spaces and punctuation, and word order (`Grace Hopper` matches `Hopper, Grace`).
+4. **No match.** A GitHub user matched by no git identity is reported in a row of its own, with an empty `username`, its pull-request statistics and zero git statistics.
+
+If a tier finds several GitHub users for one identity, that tier is skipped as ambiguous and the next is tried; ambiguous and unmatched identities are listed with `-v`. All git identities matched to the same GitHub user are combined into one row: the `username` is the matched author name with the most commits (ties broken alphabetically), and the git statistics are summed. A git identity matched to no GitHub user keeps its own row with an empty `github_username` and zero pull-request statistics. Every row carries the matched GitHub username (never the display name) in a `github_username` column, so matches can be checked and corrected by hand, e.g. with a `.mailmap` (STAT-6).
+
+**Status:** Done
+
 ### 3. Filtering
 
 #### FILT-1 Date range
 
-`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time. Defaults: one year ago until today. The output records the requested start and end dates on every row.
+`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time. Defaults: one year ago until today. The output records the requested start and end dates on every row. With `--github`, each pull request count is filtered by its own timestamp in the same range (CLI-3).
 
 **Status:** Done
 
 #### FILT-2 Single contributor
 
-`-u/--user <name>` reports only the contributor whose author name or email address matches exactly. Without `-u`, every contributor in the repository's history is reported.
+`-u/--user <name>` reports only the contributor whose author name or email address matches exactly. Without `-u`, every contributor in the repository's history is reported. With `--github`, it selects the combined row, and a value may also be the GitHub username (ignoring case); see CLI-3.
 
 **Status:** Done
 
@@ -105,7 +136,7 @@ For each contributor, the number of merge commits they authored directly on the 
 
 #### FILT-4 Remove inactive contributors
 
-By default, contributors with no activity in the date range are listed with zeros. `-c/--clean` removes them.
+By default, contributors with no activity in the date range are listed with zeros. `-c/--clean` removes them. With `--github`, only rows with neither git nor pull-request activity are removed (CLI-3).
 
 **Status:** Done
 
@@ -113,7 +144,7 @@ By default, contributors with no activity in the date range are listed with zero
 
 #### OUT-1 CSV output
 
-`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline.
+`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline. With `--github`, the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged` are appended, and are in the header even when there are no rows (CLI-3).
 
 **Status:** Done
 
@@ -137,7 +168,7 @@ When several repositories are analyzed, the results are printed once, after all 
 
 #### OUT-5 Verbose diagnostics
 
-`-v/--verbose` prints debugging information (directories, the git commands run, contributors found) to standard error, so standard output stays machine-readable.
+`-v/--verbose` prints debugging information (directories, the git commands run, contributors found) to standard error, so standard output stays machine-readable. With `--github`, it also prints how each author name was matched to a GitHub user, the ambiguous and unmatched names, and the number of `gh` API calls made for each repository (CLI-3).
 
 **Status:** Done
 
@@ -152,6 +183,17 @@ When several repositories are analyzed, the results are printed once, after all 
 #### CLI-2 Input validation
 
 Invalid dates, and a start date after the end date, are rejected with a usage error and exit status 2 instead of a stack trace.
+
+**Status:** Done
+
+#### CLI-3 GitHub pull-request statistics
+
+`--github` adds GitHub pull-request statistics (STAT-8 to STAT-11) for repositories hosted on github.com, appending the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged` to every output format. Without `--github`, the output and behaviour are unchanged, GitHub is never contacted and the GitHub CLI (`gh`) is not needed. With `--github`, the GitHub API is called through `gh api`, so `gh` must be installed and signed in. This is checked before any repository is cloned; if it fails, nothing is printed to standard output, the tool exits with status 1, and one plain message on standard error says why and what to do — no stack trace:
+
+- `gh` not found: `gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install it from https://cli.github.com and run 'gh auth login', or run without --github.`
+- `gh` not signed in (`gh auth status` fails): `gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.`
+
+The other options apply to pull requests as follows: `-s/-e` filter each count by its own timestamp, using the same inclusive local-time range as FILT-1; `-u` selects the combined row whose author names, emails or GitHub username match exactly (the username ignoring case); `-b` counts only pull requests whose base branch is that branch, and without `-b` every pull request counts; `-c` removes only rows with neither git nor pull-request activity; `-x` does not apply. For a repository not on github.com, or when GitHub cannot be reached for one repository (no network, rate limit, private repository without access), the git statistics are still reported, the four GitHub columns are empty (`null` in JSON) rather than zero, and the reason is printed to standard error.
 
 **Status:** Done
 
@@ -189,3 +231,7 @@ The CI workflow runs the test suite on every push and stops the release if any t
 - **Parallel processing** — clone and analyze many repositories concurrently to speed up large batches.
 - **Per-file breakdown** — optionally report each contributor's changes per file or directory.
 - **Output to file** — write results to a file (e.g. `-o report.csv`) instead of only standard output.
+- **GitHub without the gh CLI** — let `--github` call the GitHub API directly with a `GITHUB_TOKEN`, for users who cannot install `gh`.
+- **GitHub Enterprise hosts** — extend `--github` to repositories on GitHub Enterprise Server, via `gh api --hostname` or a configurable API URL.
+- **Pull-request reviews and mergers** — report who reviewed and who merged each pull request, in addition to who opened it.
+- **GitHub-only mode** — report pull-request statistics without computing git statistics, for faster runs over large batches.

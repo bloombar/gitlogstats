@@ -3,13 +3,17 @@ Integration tests: build real git repositories and check the statistics that
 GitLogsParser and the gitlogstats command derive from them.
 """
 
+import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
+from fake_gh import install_fake_gh
 from gitlogstats import GitLogsParser
 from gitlogstats.__main__ import main
 
@@ -955,3 +959,581 @@ class TestExclusionOption:
         assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == alice
         assert result["Bob"]["commits"] == 1
         assert result["Carol"]["merges"] == 1
+
+
+# ─── GitHub pull requests (--github) ─────────────────────────────────────────
+
+GITHUB_URL = "https://github.com/acme/widgets"
+SLUG = "acme/widgets"
+GITHUB_COLUMNS = ["github_username", "prs_opened", "prs_merged", "prs_closed_unmerged"]
+PR_COLUMNS = GITHUB_COLUMNS[1:]
+NOT_INSTALLED = (
+    "gitlogstats: --github needs the GitHub CLI (gh), which is not installed. "
+    "Install it from https://cli.github.com and run 'gh auth login', "
+    "or run without --github.\n"
+)
+NOT_SIGNED_IN = (
+    "gitlogstats: --github needs the GitHub CLI (gh) to be signed in. "
+    "Run 'gh auth login', or run without --github.\n"
+)
+
+
+def at(year, month, day, hour=12, minute=0, second=0):
+    """The GitHub-style UTC timestamp of a moment given in local time."""
+    local = datetime.datetime(year, month, day, hour, minute, second)
+    utc = datetime.datetime.fromtimestamp(
+        time.mktime(local.timetuple()), datetime.timezone.utc
+    )
+    return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def pr(login, created, merged=None, closed=None, base="main"):
+    """A pull request as the GitHub API returns it."""
+    return {
+        "user": {"login": login, "type": "User"},
+        "state": "closed" if (merged or closed) else "open",
+        "created_at": created,
+        "merged_at": merged,
+        "closed_at": merged or closed,
+        "base": {"ref": base},
+    }
+
+
+def head(repo):
+    return repo.git("rev-parse", "HEAD").strip()
+
+
+def github_world(
+    tmp_path,
+    monkeypatch,
+    repo,
+    prs=(),
+    users=None,
+    contributors=(),
+    linked=None,
+    extra_routes=None,
+):
+    """
+    Make GITHUB_URL clone *repo* (git URL rewriting in an isolated config) and
+    install a fake gh that serves these pull requests, user profiles ({login:
+    {"name", "email"}}), contributor logins, commit links ({sha: login or
+    None}) and any extra fake gh routes (e.g. errors). Returns the function
+    listing the gh calls made.
+    """
+    gitconfig = tmp_path / "gitconfig"
+    gitconfig.write_text(f'[url "{repo.path}"]\n\tinsteadOf = {GITHUB_URL}\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    routes = {
+        f"repos/{SLUG}/pulls?state=all&per_page=100": {"body": list(prs)},
+        f"repos/{SLUG}/contributors?per_page=100": {
+            "body": [{"login": login} for login in contributors]
+        },
+    }
+    for login, profile in (users or {}).items():
+        routes[f"users/{login}"] = {"body": dict(profile, login=login)}
+    for sha, login in (linked or {}).items():
+        author = {"login": login} if login else None
+        routes[f"repos/{SLUG}/commits/{sha}"] = {"body": {"author": author}}
+    routes.update(extra_routes or {})
+    return install_fake_gh(tmp_path, monkeypatch, routes)
+
+
+def run_github(monkeypatch, capsys, tmp_path, *argv):
+    """Run the command in a scratch directory; returns (stdout, stderr)."""
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    monkeypatch.chdir(work)
+    monkeypatch.setattr(sys, "argv", ["gitlogstats", *argv])
+    main()
+    captured = capsys.readouterr()
+    return captured.out, captured.err
+
+
+def rows_of(out):
+    """JSON rows as tuples: username, github_username, commits and the PR counts."""
+    return [
+        (r["username"], r["github_username"], r["commits"])
+        + tuple(r[c] for c in PR_COLUMNS)
+        for r in json.loads(out)
+    ]
+
+
+DATES = ["-s", "01/01/2024", "-e", "12/31/2024"]
+
+
+class TestGitHub:
+    @pytest.fixture
+    def widgets(self, tmp_path):
+        return Repo(tmp_path / "remotes" / "widgets")
+
+    def github(self, monkeypatch, capsys, tmp_path, *argv, url=GITHUB_URL):
+        return run_github(
+            monkeypatch, capsys, tmp_path, "-r", url, "--github", *DATES, *argv
+        )
+
+    # --- matching and combining
+
+    def test_one_person_with_two_git_names_is_one_row(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("ada", "base", email="ada@laptop.example")
+        first = head(widgets)
+        widgets.branch("f")
+        widgets.write("f.txt", lines(3))
+        widgets.commit("ada", "work", email="ada@laptop.example")
+        second = head(widgets)
+        widgets.switch("main")
+        # a pull request merged on the website: GitHub display name, noreply email
+        widgets.merge(
+            "Ada Lovelace",
+            "f",
+            message="Merge pull request #1 from acme/f",
+            email="111+adal99@users.noreply.github.com",
+            committer=("GitHub", "noreply@github.com"),
+        )
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr("adal99", at(2024, 3, 5), merged=at(2024, 3, 6)),
+                pr("adal99", at(2024, 3, 7)),
+            ],
+            contributors=["adal99"],
+            linked={first: "adal99", second: "adal99"},
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        rows = json.loads(out)
+        assert len(rows) == 1
+        assert rows[0]["username"] == "ada"
+        assert rows[0]["github_username"] == "adal99"
+        assert (rows[0]["commits"], rows[0]["insertions"], rows[0]["merges"]) == (
+            2,
+            4,
+            1,
+        )
+        assert [rows[0][c] for c in PR_COLUMNS] == [2, 1, 0]
+        assert err == ""
+
+    def test_profile_rate_limit_leaves_github_columns_empty(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        # without the profile, Ada's display-name match would be lost and her
+        # pull request silently credited to a GitHub-only row
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Ada Lovelace", "work", email="ada@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("adal99", at(2024, 3, 5))],
+            extra_routes={
+                "users/adal99": {
+                    "error": "gh: API rate limit exceeded for user ID 1. (HTTP 403)\n"
+                }
+            },
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        assert rows_of(out) == [("Ada Lovelace", None, 1, None, None, None)]
+        assert "no GitHub statistics for" in err
+        assert "rate limit" in err
+
+    def test_missing_profile_still_matches_by_username(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("adal99", "work", email="ada@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("adal99", at(2024, 3, 5))],
+            extra_routes={"users/adal99": {"error": "gh: Not Found (HTTP 404)\n"}},
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        assert rows_of(out) == [("adal99", "adal99", 1, 1, 0, 0)]
+        assert err == ""
+
+    def test_unlinked_email_is_matched_by_username(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Carol99", "work", email="carol@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("carol99", at(2024, 3, 5))],
+            linked={head(widgets): None},  # GitHub does not link this email
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
+        assert rows_of(out) == [("Carol99", "carol99", 1, 1, 0, 0)]
+
+    def test_display_name_match(self, widgets, tmp_path, monkeypatch, capsys):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Ada Lovelace", "work", email="ada@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("adal99", at(2024, 3, 5))],
+            users={"adal99": {"name": "Lovelace, Ada", "email": None}},
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
+        assert rows_of(out) == [("Ada Lovelace", "adal99", 1, 1, 0, 0)]
+        assert "GitHub match: Ada Lovelace -> adal99 (display_name)" in err
+
+    def test_pull_request_author_without_git_identity(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Eve", "work", email="eve@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("zed", at(2024, 3, 5), merged=at(2024, 3, 6))],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        data = json.loads(out)
+        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0), ("", "zed", 0, 1, 1, 0)]
+        zed = data[1]
+        assert (zed["repository"], zed["start_date"], zed["end_date"]) == (
+            "widgets",
+            "01/01/2024",
+            "12/31/2024",
+        )
+        assert (zed["insertions"], zed["deletions"], zed["files"], zed["merges"]) == (
+            0,
+            0,
+            0,
+            0,
+        )
+
+    def test_git_author_without_github_match_has_zero_counts(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Eve", "work", email="eve@example.com")
+        github_world(tmp_path, monkeypatch, widgets, contributors=["someone"])
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
+        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0)]
+
+    def test_verbose_reports_tiers_unmatched_and_call_count(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Carol99", "work", email="carol@example.com")
+        widgets.commit("Eve", "work", email="eve@example.com")
+        calls = github_world(
+            tmp_path, monkeypatch, widgets, prs=[pr("carol99", at(2024, 3, 5))]
+        )
+        _, err = self.github(monkeypatch, capsys, tmp_path, "-v")
+        assert "GitHub match: Carol99 -> carol99 (username)" in err
+        assert "GitHub unmatched: Eve" in err
+        api_calls = [c for c in calls() if c[0] == "api"]
+        assert f"GitHub API calls: {len(api_calls)}" in err
+
+    def test_ambiguous_names_are_listed_with_verbose(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Ada Lovelace", "work", email="ada@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("adal99", at(2024, 3, 5)), pr("lovelace1", at(2024, 3, 5))],
+            users={
+                "adal99": {"name": "Ada Lovelace", "email": None},
+                "lovelace1": {"name": "Lovelace Ada", "email": None},
+            },
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
+        assert "GitHub ambiguous: Ada Lovelace (display_name)" in err
+        assert [r[:2] for r in rows_of(out)] == [
+            ("Ada Lovelace", ""),
+            ("", "adal99"),
+            ("", "lovelace1"),
+        ]
+
+    # --- the options
+
+    @pytest.fixture
+    def team(self, widgets, tmp_path, monkeypatch):
+        """Five git identities, four GitHub users and PRs near the range edges."""
+        linked = {}
+
+        def commit(author, email, login, name, date="2024-03-10 12:00:00"):
+            widgets.write(name, lines(2))
+            widgets.commit(author, name, date=date, email=email)
+            linked[head(widgets)] = login
+
+        commit("Frank", "frank@example.com", "frank-gh", "f.txt", "2023-05-05 12:00:00")
+        commit("Dan", "dan@example.com", None, "d.txt", "2023-05-06 12:00:00")
+        commit("Alice", "alice@example.com", "alice-gh", "a1.txt")
+        commit("Alice", "alice@example.com", "alice-gh", "a2.txt")
+        commit("A. Smith", "asmith@example.com", "alice-gh", "s.txt")
+        commit("Bob", "bob@example.com", "bobby", "b.txt")
+        prs = [
+            pr("alice-gh", at(2024, 3, 5), merged=at(2024, 3, 6)),
+            pr("alice-gh", at(2024, 3, 7), base="dev"),
+            pr("alice-gh", at(2024, 3, 1), closed=at(2024, 3, 2)),
+            # created in 2023 but merged in the first second of the range
+            pr("bobby", at(2023, 12, 31, 23, 59, 59), merged=at(2024, 1, 1, 0, 0, 1)),
+            # created in the first second after the range
+            pr("bobby", at(2025, 1, 1, 0, 0, 0)),
+            pr("frank-gh", at(2024, 4, 1)),
+            pr("pro", at(2024, 3, 8)),
+        ]
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=prs,
+            contributors=["alice-gh", "bobby", "frank-gh"],
+            linked=linked,
+        )
+        return widgets
+
+    def test_pull_request_states_and_range_boundaries(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        assert rows_of(out) == [
+            ("Alice", "alice-gh", 3, 3, 1, 1),  # open + merged + closed unmerged
+            ("Bob", "bobby", 1, 0, 1, 0),  # only the merge is inside the range
+            ("Dan", "", 0, 0, 0, 0),
+            ("Frank", "frank-gh", 0, 1, 0, 0),
+            ("", "pro", 0, 1, 0, 0),
+        ]
+        alice = json.loads(out)[0]
+        assert (alice["insertions"], alice["files"]) == (6, 3)
+        assert err == ""
+
+    @pytest.mark.parametrize(
+        "branch,alice",
+        [("main", (2, 1, 1)), ("dev", (1, 0, 0)), ("nope", (0, 0, 0))],
+    )
+    def test_branch_filters_pull_requests_by_base(
+        self, team, tmp_path, monkeypatch, capsys, branch, alice
+    ):
+        # the branch also selects what git analyses, so check the PR counts only
+        team.git("branch", "dev")
+        team.git("branch", "nope")
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-b", branch)
+        assert tuple(json.loads(out)[0][c] for c in PR_COLUMNS) == alice
+
+    @pytest.mark.parametrize(
+        "user",
+        ["Alice", "A. Smith", "asmith@example.com", "alice-gh", "ALICE-GH"],
+    )
+    def test_user_selects_the_combined_row(
+        self, team, tmp_path, monkeypatch, capsys, user
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-u", user)
+        assert rows_of(out) == [("Alice", "alice-gh", 3, 3, 1, 1)]
+
+    def test_user_matches_github_only_row_by_login(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-u", "PRO")
+        assert rows_of(out) == [("", "pro", 0, 1, 0, 0)]
+
+    @pytest.mark.parametrize("user", ["alice", "alice@example", "Smith", "nobody"])
+    def test_user_must_match_exactly(self, team, tmp_path, monkeypatch, capsys, user):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-u", user)
+        assert out == "[]\n"
+
+    def test_clean_drops_only_rows_without_any_activity(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-c")
+        # Dan has nothing; Frank has no commits in range but a pull request, and
+        # keeps his own row; "pro" has a pull request and no git identity
+        assert rows_of(out) == [
+            ("Alice", "alice-gh", 3, 3, 1, 1),
+            ("Bob", "bobby", 1, 0, 1, 0),
+            ("Frank", "frank-gh", 0, 1, 0, 0),
+            ("", "pro", 0, 1, 0, 0),
+        ]
+
+    def test_exclusions_do_not_affect_pull_requests(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-x", "*.txt")
+        data = json.loads(out)
+        assert (data[0]["commits"], data[0]["prs_opened"]) == (0, 3)
+
+    # --- output formats
+
+    def test_csv_and_markdown_append_the_github_columns(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "Bob")
+        assert out == (
+            "username,repository,start_date,end_date,commits,insertions,deletions,"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged\n"
+            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0\n"
+        )
+        out, _ = self.github(
+            monkeypatch, capsys, tmp_path, "-u", "Bob", "-f", "markdown"
+        )
+        header, _, row = out.splitlines()
+        assert header.endswith(
+            "| merges | github_username | prs_opened | prs_merged | prs_closed_unmerged |"
+        )
+        assert row.endswith("| 0 | bobby | 0 | 1 | 0 |")
+
+    def test_empty_csv_still_has_the_github_columns(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "nobody")
+        assert out == (
+            "username,repository,start_date,end_date,commits,insertions,deletions,"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged\n"
+        )
+
+    # --- repositories GitHub cannot be asked about
+
+    def test_local_repository_has_empty_github_columns(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(3))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        calls = github_world(tmp_path, monkeypatch, widgets)
+        argv = ["-r", widgets.path, "--github", *DATES]
+        out, err = run_github(monkeypatch, capsys, tmp_path, *argv, "-f", "json")
+        assert err == (
+            f"gitlogstats: no GitHub statistics for {widgets.path}: "
+            "not a github.com repository\n"
+        )
+        row = json.loads(out)[0]
+        assert (row["username"], row["commits"], row["insertions"]) == ("Alice", 1, 3)
+        assert [row[c] for c in GITHUB_COLUMNS] == [None] * 4
+        assert [c for c in calls() if c[0] == "api"] == []
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv)
+        assert (
+            out.splitlines()[1] == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,"
+        )
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-f", "markdown")
+        assert out.splitlines()[2].endswith("| 0 |  |  |  |  |")
+
+    def test_github_failure_for_one_repository_does_not_stop_the_next(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        other = Repo(tmp_path / "remotes" / "other")
+        other.write("o.txt", lines(5))
+        other.commit("Bob", "work", email="bob@example.com")
+        calls = github_world(tmp_path, monkeypatch, widgets)
+        # take away the pull request route: gh answers 404
+        config = tmp_path / "fake-gh-config" / "config.json"
+        routes = json.loads(config.read_text())
+        del routes["routes"][f"repos/{SLUG}/pulls?state=all&per_page=100"]
+        config.write_text(json.dumps(routes))
+        repofile = tmp_path / "repos.txt"
+        repofile.write_text(f"{GITHUB_URL}\n{other.path}\n")
+        out, err = run_github(
+            monkeypatch, capsys, tmp_path, "-rf", str(repofile), "--github", *DATES,
+            "-f", "json",
+        )  # fmt: skip
+        assert f"gitlogstats: no GitHub statistics for {GITHUB_URL}: " in err
+        assert "404" in err
+        assert f"no GitHub statistics for {other.path}: not a github.com" in err
+        data = json.loads(out)
+        assert [(r["username"], r["repository"], r["commits"]) for r in data] == [
+            ("Alice", "widgets", 1),
+            ("Bob", "other", 1),
+        ]
+        assert all(r[c] is None for r in data for c in GITHUB_COLUMNS)
+
+    def test_clean_and_user_apply_to_unavailable_rows_too(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        # the old commit goes first: git stops reading history at a too-old commit
+        widgets.write("b.txt", lines(2))
+        widgets.commit(
+            "Old", "work", date="2020-01-01 12:00:00", email="old@example.com"
+        )
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        github_world(tmp_path, monkeypatch, widgets)
+        base = ["-r", widgets.path, "--github", *DATES, "-f", "json"]
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *base, "-c")
+        assert [r["username"] for r in json.loads(out)] == ["Alice"]
+        out, _ = run_github(
+            monkeypatch, capsys, tmp_path, *base, "-u", "old@example.com"
+        )
+        assert [r["username"] for r in json.loads(out)] == ["Old"]
+
+    # --- gh missing or signed out
+
+    def run_expecting_exit(self, tmp_path, monkeypatch, capsys, widgets):
+        with pytest.raises(SystemExit) as exc:
+            run_github(
+                monkeypatch, capsys, tmp_path, "-r", widgets.path, "--github", *DATES
+            )
+        captured = capsys.readouterr()
+        assert exc.value.code == 1
+        assert captured.out == ""
+        assert not (tmp_path / "work" / "repos").exists()
+        return captured.err
+
+    def test_gh_not_installed(self, widgets, tmp_path, monkeypatch, capsys):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "work")
+        only_git = tmp_path / "only-git"
+        only_git.mkdir()
+        (only_git / "git").symlink_to(shutil.which("git"))
+        monkeypatch.setenv("PATH", str(only_git))
+        err = self.run_expecting_exit(tmp_path, monkeypatch, capsys, widgets)
+        assert err == NOT_INSTALLED
+
+    def test_gh_signed_out(self, widgets, tmp_path, monkeypatch, capsys):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "work")
+        calls = install_fake_gh(tmp_path, monkeypatch, auth_ok=False)
+        err = self.run_expecting_exit(tmp_path, monkeypatch, capsys, widgets)
+        assert err == NOT_SIGNED_IN
+        assert calls() == [["auth", "status"]]
+
+    # --- without --github
+
+    def test_without_github_nothing_changes_and_gh_is_never_run(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(3))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        calls = github_world(tmp_path, monkeypatch, widgets)
+        out, err = run_github(monkeypatch, capsys, tmp_path, "-r", GITHUB_URL, *DATES)
+        assert out == (
+            "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
+            "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0\n"
+        )
+        assert err == "" and "github" not in out
+        assert calls() == []
+
+    # --- the parser's new pieces
+
+    def test_get_identities_lists_names_with_emails_and_a_commit_each(
+        self, widgets, monkeypatch
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "one", email="a@home.example")
+        first = head(widgets)
+        widgets.write("b.txt", lines(1))
+        widgets.commit("Alice", "two", email="a@work.example")
+        widgets.write("c.txt", lines(1))
+        widgets.commit("Bob", "three", email="b@work.example")
+        monkeypatch.chdir(widgets.path)
+        parser = GitLogsParser(widgets.path, "01/01/2024", "12/31/2024", None)
+        identities = parser.get_identities()
+        assert {n: set(e) for n, e in identities.items()} == {
+            "Alice": {"a@home.example", "a@work.example"},
+            "Bob": {"b@work.example"},
+        }
+        assert identities["Alice"]["a@home.example"] == first
+        assert set(identities) == set(parser.get_contributors())
