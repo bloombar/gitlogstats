@@ -965,7 +965,13 @@ class TestExclusionOption:
 
 GITHUB_URL = "https://github.com/acme/widgets"
 SLUG = "acme/widgets"
-GITHUB_COLUMNS = ["github_username", "prs_opened", "prs_merged", "prs_closed_unmerged"]
+GITHUB_COLUMNS = [
+    "github_username",
+    "prs_opened",
+    "prs_merged",
+    "prs_closed_unmerged",
+    "prs_self_merged",
+]
 PR_COLUMNS = GITHUB_COLUMNS[1:]
 NOT_INSTALLED = (
     "gitlogstats: --github needs the GitHub CLI (gh), which is not installed. "
@@ -987,15 +993,16 @@ def at(year, month, day, hour=12, minute=0, second=0):
     return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def pr(login, created, merged=None, closed=None, base="main"):
-    """A pull request as the GitHub API returns it."""
+def pr(login, created, merged=None, closed=None, base="main", merged_by=None):
+    """A pull request as the GitHub GraphQL API returns it."""
     return {
-        "user": {"login": login, "type": "User"},
-        "state": "closed" if (merged or closed) else "open",
-        "created_at": created,
-        "merged_at": merged,
-        "closed_at": merged or closed,
-        "base": {"ref": base},
+        "author": {"login": login, "__typename": "User"},
+        "mergedBy": {"login": merged_by, "__typename": "User"} if merged_by else None,
+        "state": "MERGED" if merged else ("CLOSED" if closed else "OPEN"),
+        "createdAt": created,
+        "mergedAt": merged,
+        "closedAt": merged or closed,
+        "baseRefName": base,
     }
 
 
@@ -1024,7 +1031,7 @@ def github_world(
     gitconfig.write_text(f'[url "{repo.path}"]\n\tinsteadOf = {GITHUB_URL}\n')
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
     routes = {
-        f"repos/{SLUG}/pulls?state=all&per_page=100": {"body": list(prs)},
+        f"graphql:{SLUG}": {"graphql_pages": [list(prs)]},
         f"repos/{SLUG}/contributors?per_page=100": {
             "body": [{"login": login} for login in contributors]
         },
@@ -1113,7 +1120,7 @@ class TestGitHub:
             4,
             1,
         )
-        assert [rows[0][c] for c in PR_COLUMNS] == [2, 1, 0]
+        assert [rows[0][c] for c in PR_COLUMNS] == [2, 1, 0, 0]
         assert err == ""
 
     def test_profile_rate_limit_leaves_github_columns_empty(
@@ -1135,7 +1142,7 @@ class TestGitHub:
             },
         )
         out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
-        assert rows_of(out) == [("Ada Lovelace", None, 1, None, None, None)]
+        assert rows_of(out) == [("Ada Lovelace", None, 1, None, None, None, None)]
         assert "no GitHub statistics for" in err
         assert "rate limit" in err
 
@@ -1152,7 +1159,7 @@ class TestGitHub:
             extra_routes={"users/adal99": {"error": "gh: Not Found (HTTP 404)\n"}},
         )
         out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
-        assert rows_of(out) == [("adal99", "adal99", 1, 1, 0, 0)]
+        assert rows_of(out) == [("adal99", "adal99", 1, 1, 0, 0, 0)]
         assert err == ""
 
     def test_unlinked_email_is_matched_by_username(
@@ -1168,7 +1175,7 @@ class TestGitHub:
             linked={head(widgets): None},  # GitHub does not link this email
         )
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
-        assert rows_of(out) == [("Carol99", "carol99", 1, 1, 0, 0)]
+        assert rows_of(out) == [("Carol99", "carol99", 1, 1, 0, 0, 0)]
 
     def test_display_name_match(self, widgets, tmp_path, monkeypatch, capsys):
         widgets.write("a.txt", lines(1))
@@ -1181,7 +1188,7 @@ class TestGitHub:
             users={"adal99": {"name": "Lovelace, Ada", "email": None}},
         )
         out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
-        assert rows_of(out) == [("Ada Lovelace", "adal99", 1, 1, 0, 0)]
+        assert rows_of(out) == [("Ada Lovelace", "adal99", 1, 1, 0, 0, 0)]
         assert "GitHub match: Ada Lovelace -> adal99 (display_name)" in err
 
     def test_pull_request_author_without_git_identity(
@@ -1197,7 +1204,7 @@ class TestGitHub:
         )
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
         data = json.loads(out)
-        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0), ("", "zed", 0, 1, 1, 0)]
+        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0, 0), ("", "zed", 0, 1, 1, 0, 0)]
         zed = data[1]
         assert (zed["repository"], zed["start_date"], zed["end_date"]) == (
             "widgets",
@@ -1218,7 +1225,7 @@ class TestGitHub:
         widgets.commit("Eve", "work", email="eve@example.com")
         github_world(tmp_path, monkeypatch, widgets, contributors=["someone"])
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-v")
-        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0)]
+        assert rows_of(out) == [("Eve", "", 1, 0, 0, 0, 0)]
 
     def test_verbose_reports_tiers_unmatched_and_call_count(
         self, widgets, tmp_path, monkeypatch, capsys
@@ -1277,15 +1284,31 @@ class TestGitHub:
         commit("A. Smith", "asmith@example.com", "alice-gh", "s.txt")
         commit("Bob", "bob@example.com", "bobby", "b.txt")
         prs = [
-            pr("alice-gh", at(2024, 3, 5), merged=at(2024, 3, 6)),
+            # merged by herself
+            pr("alice-gh", at(2024, 3, 5), merged=at(2024, 3, 6), merged_by="alice-gh"),
             pr("alice-gh", at(2024, 3, 7), base="dev"),
             pr("alice-gh", at(2024, 3, 1), closed=at(2024, 3, 2)),
             # created in 2023 but merged in the first second of the range
-            pr("bobby", at(2023, 12, 31, 23, 59, 59), merged=at(2024, 1, 1, 0, 0, 1)),
+            # ... and merged by someone else
+            pr(
+                "bobby",
+                at(2023, 12, 31, 23, 59, 59),
+                merged=at(2024, 1, 1, 0, 0, 1),
+                merged_by="alice-gh",
+            ),
+            # merged by himself, but before the range
+            pr("bobby", at(2023, 12, 1), merged=at(2023, 12, 2), merged_by="bobby"),
             # created in the first second after the range
             pr("bobby", at(2025, 1, 1, 0, 0, 0)),
             pr("frank-gh", at(2024, 4, 1)),
             pr("pro", at(2024, 3, 8)),
+            pr(
+                "pro",
+                at(2024, 3, 8),
+                merged=at(2024, 3, 9),
+                base="dev",
+                merged_by="pro",
+            ),
         ]
         github_world(
             tmp_path,
@@ -1302,11 +1325,11 @@ class TestGitHub:
     ):
         out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
         assert rows_of(out) == [
-            ("Alice", "alice-gh", 3, 3, 1, 1),  # open + merged + closed unmerged
-            ("Bob", "bobby", 1, 0, 1, 0),  # only the merge is inside the range
-            ("Dan", "", 0, 0, 0, 0),
-            ("Frank", "frank-gh", 0, 1, 0, 0),
-            ("", "pro", 0, 1, 0, 0),
+            ("Alice", "alice-gh", 3, 3, 1, 1, 1),  # open + merged + closed unmerged
+            ("Bob", "bobby", 1, 0, 1, 0, 0),  # only the merge is inside the range
+            ("Dan", "", 0, 0, 0, 0, 0),
+            ("Frank", "frank-gh", 0, 1, 0, 0, 0),
+            ("", "pro", 0, 2, 1, 0, 1),
         ]
         alice = json.loads(out)[0]
         assert (alice["insertions"], alice["files"]) == (6, 3)
@@ -1314,7 +1337,11 @@ class TestGitHub:
 
     @pytest.mark.parametrize(
         "branch,alice",
-        [("main", (2, 1, 1)), ("dev", (1, 0, 0)), ("nope", (0, 0, 0))],
+        [
+            ("main", (2, 1, 1, 1)),
+            ("dev", (1, 0, 0, 0)),
+            ("nope", (0, 0, 0, 0)),
+        ],
     )
     def test_branch_filters_pull_requests_by_base(
         self, team, tmp_path, monkeypatch, capsys, branch, alice
@@ -1325,6 +1352,46 @@ class TestGitHub:
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-b", branch)
         assert tuple(json.loads(out)[0][c] for c in PR_COLUMNS) == alice
 
+    def test_self_merged_counts_only_the_authors_own_merges_in_range(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        by_login = {r["github_username"]: r for r in json.loads(out)}
+        # Alice merged her own PR; Bob's PR in range was merged by Alice, and
+        # his own merge happened before the range; "pro" self-merged on dev
+        assert {k: v["prs_self_merged"] for k, v in by_login.items()} == {
+            "alice-gh": 1,
+            "bobby": 0,
+            "": 0,
+            "frank-gh": 0,
+            "pro": 1,
+        }
+        # a self-merge is also a merge, so it is never more than prs_merged
+        assert all(r["prs_self_merged"] <= r["prs_merged"] for r in by_login.values())
+
+    def test_branch_filter_applies_to_self_merges(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        team.git("branch", "dev")
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-b", "dev")
+        by_login = {r["github_username"]: r for r in json.loads(out)}
+        assert by_login["alice-gh"]["prs_self_merged"] == 0
+        assert by_login["pro"]["prs_self_merged"] == 1
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-b", "main")
+        by_login = {r["github_username"]: r for r in json.loads(out)}
+        assert by_login["alice-gh"]["prs_self_merged"] == 1
+        assert by_login["pro"]["prs_self_merged"] == 0
+
+    def test_self_merge_is_reported_in_csv_and_markdown(
+        self, team, tmp_path, monkeypatch, capsys
+    ):
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "alice-gh")
+        assert out.splitlines()[1].endswith(",alice-gh,3,1,1,1")
+        out, _ = self.github(
+            monkeypatch, capsys, tmp_path, "-u", "alice-gh", "-f", "markdown"
+        )
+        assert out.splitlines()[2].endswith("| alice-gh | 3 | 1 | 1 | 1 |")
+
     @pytest.mark.parametrize(
         "user",
         ["Alice", "A. Smith", "asmith@example.com", "alice-gh", "ALICE-GH"],
@@ -1333,13 +1400,13 @@ class TestGitHub:
         self, team, tmp_path, monkeypatch, capsys, user
     ):
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-u", user)
-        assert rows_of(out) == [("Alice", "alice-gh", 3, 3, 1, 1)]
+        assert rows_of(out) == [("Alice", "alice-gh", 3, 3, 1, 1, 1)]
 
     def test_user_matches_github_only_row_by_login(
         self, team, tmp_path, monkeypatch, capsys
     ):
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-u", "PRO")
-        assert rows_of(out) == [("", "pro", 0, 1, 0, 0)]
+        assert rows_of(out) == [("", "pro", 0, 2, 1, 0, 1)]
 
     @pytest.mark.parametrize("user", ["alice", "alice@example", "Smith", "nobody"])
     def test_user_must_match_exactly(self, team, tmp_path, monkeypatch, capsys, user):
@@ -1353,10 +1420,10 @@ class TestGitHub:
         # Dan has nothing; Frank has no commits in range but a pull request, and
         # keeps his own row; "pro" has a pull request and no git identity
         assert rows_of(out) == [
-            ("Alice", "alice-gh", 3, 3, 1, 1),
-            ("Bob", "bobby", 1, 0, 1, 0),
-            ("Frank", "frank-gh", 0, 1, 0, 0),
-            ("", "pro", 0, 1, 0, 0),
+            ("Alice", "alice-gh", 3, 3, 1, 1, 1),
+            ("Bob", "bobby", 1, 0, 1, 0, 0),
+            ("Frank", "frank-gh", 0, 1, 0, 0, 0),
+            ("", "pro", 0, 2, 1, 0, 1),
         ]
 
     def test_exclusions_do_not_affect_pull_requests(
@@ -1374,17 +1441,17 @@ class TestGitHub:
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "Bob")
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,"
-            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged\n"
-            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0\n"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged\n"
+            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0,0\n"
         )
         out, _ = self.github(
             monkeypatch, capsys, tmp_path, "-u", "Bob", "-f", "markdown"
         )
         header, _, row = out.splitlines()
         assert header.endswith(
-            "| merges | github_username | prs_opened | prs_merged | prs_closed_unmerged |"
+            "| merges | github_username | prs_opened | prs_merged | prs_closed_unmerged | prs_self_merged |"
         )
-        assert row.endswith("| 0 | bobby | 0 | 1 | 0 |")
+        assert row.endswith("| 0 | bobby | 0 | 1 | 0 | 0 |")
 
     def test_empty_csv_still_has_the_github_columns(
         self, team, tmp_path, monkeypatch, capsys
@@ -1392,7 +1459,7 @@ class TestGitHub:
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "nobody")
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,"
-            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged\n"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged\n"
         )
 
     # --- repositories GitHub cannot be asked about
@@ -1411,14 +1478,14 @@ class TestGitHub:
         )
         row = json.loads(out)[0]
         assert (row["username"], row["commits"], row["insertions"]) == ("Alice", 1, 3)
-        assert [row[c] for c in GITHUB_COLUMNS] == [None] * 4
+        assert [row[c] for c in GITHUB_COLUMNS] == [None] * 5
         assert [c for c in calls() if c[0] == "api"] == []
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv)
         assert (
-            out.splitlines()[1] == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,"
+            out.splitlines()[1] == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,,"
         )
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-f", "markdown")
-        assert out.splitlines()[2].endswith("| 0 |  |  |  |  |")
+        assert out.splitlines()[2].endswith("| 0 |  |  |  |  |  |")
 
     def test_github_failure_for_one_repository_does_not_stop_the_next(
         self, widgets, tmp_path, monkeypatch, capsys
@@ -1432,7 +1499,7 @@ class TestGitHub:
         # take away the pull request route: gh answers 404
         config = tmp_path / "fake-gh-config" / "config.json"
         routes = json.loads(config.read_text())
-        del routes["routes"][f"repos/{SLUG}/pulls?state=all&per_page=100"]
+        del routes["routes"][f"graphql:{SLUG}"]
         config.write_text(json.dumps(routes))
         repofile = tmp_path / "repos.txt"
         repofile.write_text(f"{GITHUB_URL}\n{other.path}\n")

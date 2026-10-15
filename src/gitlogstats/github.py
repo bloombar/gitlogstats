@@ -18,6 +18,7 @@ GITHUB_FIELDNAMES = [
     "prs_opened",
     "prs_merged",
     "prs_closed_unmerged",
+    "prs_self_merged",
 ]
 
 # CLI-3: the two user-facing messages, verbatim from the SPEC
@@ -29,6 +30,17 @@ GH_NOT_INSTALLED = (
 GH_NOT_SIGNED_IN = (
     "gitlogstats: --github needs the GitHub CLI (gh) to be signed in. "
     "Run 'gh auth login', or run without --github."
+)
+
+# STAT-12: the list endpoint of the REST API does not say who merged a pull
+# request, but GraphQL does, in one paginated query (gh fills in $endCursor)
+PULLS_QUERY = (
+    "query($owner:String!,$name:String!,$endCursor:String){"
+    "repository(owner:$owner,name:$name){"
+    "pullRequests(first:100,after:$endCursor){"
+    "pageInfo{hasNextPage endCursor} "
+    "nodes{author{login __typename} mergedBy{login __typename} "
+    "state createdAt mergedAt closedAt baseRefName}}}}"
 )
 
 # Login given to pull requests whose author's account was deleted
@@ -148,29 +160,84 @@ def gh_api(path, paginate=False):
         raise GitHubError(f"gh api {path} returned invalid JSON: {exc}")
 
 
+def gh_graphql(query, variables):
+    """
+    Run a paginated GraphQL query through gh. gh prints one JSON document per
+    page, back to back.
+    @param query: the query text; it must use $endCursor for pagination
+    @param variables: {name: string value}, passed as separate arguments
+    @returns: a list with one parsed response per page
+    @raises GitHubError: if gh exits with an error or the response has errors
+    """
+    cmd = ["gh", "api", "graphql", "--paginate", "-f", f"query={query}"]
+    for name, value in variables.items():
+        # -f sends a raw string; -F would turn "2048" or "true" into a number
+        # or boolean, which GitHub rejects for String! variables
+        cmd += ["-f", f"{name}={value}"]
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    if result.returncode != 0:
+        raise GitHubError(result.stderr.strip() or "gh api graphql failed")
+    try:
+        pages = _parse_json_stream(result.stdout)
+    except ValueError as exc:  # json.JSONDecodeError is a ValueError
+        raise GitHubError(f"gh api graphql returned invalid JSON: {exc}")
+    if isinstance(pages, dict):
+        pages = [pages]
+    for page in pages:
+        if page.get("errors"):
+            messages = [e.get("message", "unknown error") for e in page["errors"]]
+            raise GitHubError("; ".join(messages))
+    return pages
+
+
+def _graphql_login(account):
+    """
+    Read a login from a GraphQL author or merger. GraphQL leaves "[bot]" off
+    bot logins that the REST API includes, so it is added back.
+    @param account: {"login", "__typename"}, or None for a deleted account
+    @returns: the login, or None if there is no account
+    """
+    if not account:
+        return None
+    login = account["login"]
+    return login + "[bot]" if account.get("__typename") == "Bot" else login
+
+
 def fetch_pull_requests(repo):
     """
     List every pull request of a repository, in any state.
     @param repo: "owner/repo"
-    @returns: a list of dicts with login, user_type, state, created_at,
-        merged_at, closed_at and base (the base branch name)
+    @returns: a list of dicts with login, user_type, state ("open" or
+        "closed"), created_at, merged_at, closed_at, base (the base branch
+        name) and merged_by (a login, or None if not merged or unknown)
     @raises GitHubError: if the request fails
     """
-    pulls = gh_api(f"repos/{repo}/pulls?state=all&per_page=100", paginate=True)
+    owner, name = repo.split("/", 1)
+    pages = gh_graphql(PULLS_QUERY, {"owner": owner, "name": name})
     result = []
-    for pull in pulls:
-        user = pull.get("user")
-        result.append(
-            {
-                "login": user["login"] if user else GHOST_LOGIN,
-                "user_type": user.get("type") if user else None,
-                "state": pull.get("state"),
-                "created_at": pull.get("created_at"),
-                "merged_at": pull.get("merged_at"),
-                "closed_at": pull.get("closed_at"),
-                "base": (pull.get("base") or {}).get("ref"),
-            }
-        )
+    for page in pages:
+        repository = (page.get("data") or {}).get("repository")
+        if repository is None:
+            raise GitHubError(f"could not read pull requests of {repo}")
+        for pull in repository["pullRequests"]["nodes"]:
+            author = pull.get("author")
+            result.append(
+                {
+                    "login": _graphql_login(author) or GHOST_LOGIN,
+                    "user_type": author.get("__typename") if author else None,
+                    "state": "open" if pull.get("state") == "OPEN" else "closed",
+                    "created_at": pull.get("createdAt"),
+                    "merged_at": pull.get("mergedAt"),
+                    "closed_at": pull.get("closedAt"),
+                    "base": pull.get("baseRefName"),
+                    "merged_by": _graphql_login(pull.get("mergedBy")),
+                }
+            )
     return result
 
 
@@ -188,13 +255,14 @@ def _local_time(timestamp):
 
 def count_pull_requests(prs, start, end, branch=None):
     """
-    STAT-8, STAT-9, STAT-10: count each user's pull requests in a date range.
+    STAT-8, STAT-9, STAT-10, STAT-12: count each user's pull requests in a date range.
     The range is inclusive local time, as in FILT-1.
     @param prs: the list from fetch_pull_requests
     @param start: first day, mm/dd/yyyy
     @param end: last day, mm/dd/yyyy
     @param branch: count only pull requests with this base branch, if given
-    @returns: {login: {"prs_opened", "prs_merged", "prs_closed_unmerged"}}
+    @returns: {login: {"prs_opened", "prs_merged", "prs_closed_unmerged",
+        "prs_self_merged"}}
     """
     since = datetime.datetime.strptime(start, "%m/%d/%Y")
     until = datetime.datetime.strptime(end, "%m/%d/%Y").replace(
@@ -211,12 +279,21 @@ def count_pull_requests(prs, start, end, branch=None):
             continue
         row = counts.setdefault(
             pr["login"],
-            {"prs_opened": 0, "prs_merged": 0, "prs_closed_unmerged": 0},
+            {
+                "prs_opened": 0,
+                "prs_merged": 0,
+                "prs_closed_unmerged": 0,
+                "prs_self_merged": 0,
+            },
         )
         if in_range(pr["created_at"]):
             row["prs_opened"] += 1
         if in_range(pr["merged_at"]):
             row["prs_merged"] += 1
+            # STAT-12: the merger is the author; an unknown merger never is
+            merger = pr.get("merged_by")
+            if merger and merger.casefold() == pr["login"].casefold():
+                row["prs_self_merged"] += 1
         if (
             pr["state"] == "closed"
             and not pr["merged_at"]

@@ -1,20 +1,29 @@
 [
   {
-    "number": 1,
-    "state": "closed",
-    "created_at": "2026-03-02T15:04:05Z",
-    "closed_at": "2026-03-03T10:00:00Z",
-    "merged_at": "2026-03-03T10:00:00Z",
-    "user": {"login": "alice-dev", "id": 1001, "type": "User"},
-    "base": {"label": "acme:main", "ref": "main"}
+    "author": {
+      "login": "alice-dev",
+      "__typename": "User"
+    },
+    "mergedBy": {
+      "login": "alice-dev",
+      "__typename": "User"
+    },
+    "state": "MERGED",
+    "createdAt": "2026-03-02T15:04:05Z",
+    "mergedAt": "2026-03-03T10:00:00Z",
+    "closedAt": "2026-03-03T10:00:00Z",
+    "baseRefName": "main"
   },
   {
-    "number": 2,
-    "state": "open",
-    "created_at": "2026-03-05T09:00:00Z",
-    "closed_at": null,
-    "merged_at": null,
-    "user": {"login": "bob-codes", "id": 1002, "type": "User"},
-    "base": {"label": "acme:main", "ref": "main"}
+    "author": {
+      "login": "bob-codes",
+      "__typename": "User"
+    },
+    "mergedBy": null,
+    "state": "OPEN",
+    "createdAt": "2026-03-05T09:00:00Z",
+    "mergedAt": null,
+    "closedAt": null,
+    "baseRefName": "main"
   }
 ]

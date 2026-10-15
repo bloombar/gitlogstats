@@ -26,7 +26,11 @@ if args[:2] == ["auth", "status"]:
     sys.exit(1 if config["auth"] else 0)
 
 if args[0] == "api":
-    route = config["routes"].get(args[1])
+    key = args[1]
+    if key == "graphql":
+        values = dict(a.split("=", 1) for a in args if "=" in a and a[0] != "-")
+        key = "graphql:" + values["owner"] + "/" + values["name"]
+    route = config["routes"].get(key)
     if route is None:
         sys.stderr.write("gh: Not Found (HTTP 404)\\n")
         sys.exit(1)
@@ -36,6 +40,14 @@ if args[0] == "api":
         sys.exit(1)
     if "raw" in route:
         sys.stdout.write(route["raw"])
+        sys.exit(0)
+    if "graphql_pages" in route:
+        # like gh --paginate: one response per page, back to back
+        for nodes in route["graphql_pages"]:
+            if isinstance(nodes, str):  # a fixture file holding the nodes
+                nodes = json.load(open(os.path.join({fixtures!r}, nodes)))
+            page = {{"repository": {{"pullRequests": {{"nodes": nodes}}}}}}
+            sys.stdout.write(json.dumps({{"data": page}}))
         sys.exit(0)
     if "body" in route:
         sys.stdout.write(json.dumps(route["body"]))
@@ -63,7 +75,9 @@ def install_fake_gh(tmp_path, monkeypatch, routes=None, auth_ok=True):
     @param monkeypatch: pytest's monkeypatch, used to set PATH
     @param routes: {api path: {"pages": [fixture files], "shape": "merged" |
         "newline" | "concatenated"}, {"error": stderr text} or {"raw": stdout
-        text printed as is} or {"body": a JSON value printed as is}}
+        text printed as is} or {"body": a JSON value printed as is}}. GraphQL
+        calls use the key "graphql:owner/name" and {"graphql_pages": [one list
+        of pull request nodes (or fixture file name) per page]}.
     @param auth_ok: whether `gh auth status` succeeds
     @returns: a function that returns the list of argument lists gh was run with
     """
