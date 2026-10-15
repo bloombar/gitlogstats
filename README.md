@@ -55,9 +55,9 @@ options:
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
   --github              Also report GitHub pull requests opened, merged,
-                        closed and self-merged per contributor, and match
-                        GitHub users to git authors. Needs the GitHub CLI
-                        (gh), signed in
+                        closed and self-merged per contributor, with their git
+                        and GitHub emails, and match GitHub users to git
+                        authors. Needs the GitHub CLI (gh), signed in
 ```
 
 In case `gitlogstats` is not found as a command, even after installing, try `python -m gitlogstats` or `python3 -m gitlogstats` instead.
@@ -140,7 +140,7 @@ gitlogstats -rf repos.txt -c
 
 ### GitHub pull requests
 
-Add `--github` to also count each contributor's pull requests. Five columns are appended to every output format:
+Add `--github` to also count each contributor's pull requests. Seven columns are appended to every output format:
 
 | Column                | Meaning                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -149,6 +149,8 @@ Add `--github` to also count each contributor's pull requests. Five columns are 
 | `prs_merged`          | pull requests they authored that were merged in the date range, by anyone and in any way (squash too)   |
 | `prs_closed_unmerged` | pull requests they authored that were closed without merging in the date range                          |
 | `prs_self_merged`     | pull requests they authored and also merged themselves, merged in the date range (also in `prs_merged`) |
+| `git_email`           | every distinct author email of the git names combined into the row, sorted alphabetically (ignoring case) and separated by `; `; empty for a GitHub-only row |
+| `github_email`        | the public email on the matched GitHub profile; empty when the profile has none (GitHub does not reveal private emails) or no account matched |
 
 ```
 gitlogstats -r https://github.com/bloombar/gitlogstats.git --github
@@ -161,7 +163,7 @@ gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install
 gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.
 ```
 
-**Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests but has no commits is listed in a row of their own with an empty `username` and zero git statistics.
+**Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests but has no commits is listed in a row of their own with an empty `username` and zero git statistics. When GitHub could not be asked, `git_email` is still filled in and `github_email` is empty. The emails come from the whole history of the branch, not only from commits in the date range.
 
 **Matching GitHub users to git authors.** Each git author name is compared with the GitHub users active in the repository, trying these in order and stopping at the first that finds exactly one user:
 

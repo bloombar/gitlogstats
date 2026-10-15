@@ -9,7 +9,7 @@ import re
 import unicodedata
 
 from gitlogstats.git_logs_parser import FIELDNAMES
-from gitlogstats.github import GITHUB_FIELDNAMES
+from gitlogstats.github import EMAIL_FIELDNAMES, GITHUB_FIELDNAMES
 
 NOREPLY_RE = re.compile(
     r"^(?:\d+\+)?([^@+\s]+)@users\.noreply\.github\.com$", re.IGNORECASE
@@ -165,16 +165,34 @@ def match_identities(identities, candidates, linked_emails):
     return matches, ambiguous
 
 
+def join_emails(emails):
+    """
+    STAT-13: list email addresses for the git_email column.
+    @param emails: an iterable of email addresses (empty ones are ignored).
+    @returns: the distinct addresses (ignoring case; the first in plain
+        sorted order is kept) sorted ignoring case and joined with "; ".
+    """
+    unique = {}
+    for email in sorted(set(emails)):
+        if email:
+            unique.setdefault(email.casefold(), email)
+    return "; ".join(unique[key] for key in sorted(unique))
+
+
 def _blank_row(row):
     """Return a copy of a git row in output column order, GitHub columns unset."""
     out = {field: row[field] for field in FIELDNAMES}
     out["github_username"] = ""
     for field in _PR_FIELDS:
         out[field] = 0
+    out["git_email"] = ""
+    out["github_email"] = ""
     return out
 
 
-def consolidate(rows, matches, pr_counts, repository, start, end):
+def consolidate(
+    rows, matches, pr_counts, repository, start, end, identities, github_emails
+):
     """
     Merge git rows that belong to one GitHub user and add pull-request counts.
 
@@ -188,9 +206,13 @@ def consolidate(rows, matches, pr_counts, repository, start, end):
     @param repository: kept for GitHub-only rows.
     @param start: start date kept for GitHub-only rows.
     @param end: end date kept for GitHub-only rows.
-    @returns: new rows with keys FIELDNAMES + GITHUB_FIELDNAMES.
+    @param identities: {author_name: emails} (STAT-13); for git_email.
+    @param github_emails: {login: public profile email or None} (STAT-13).
+    @returns: new rows with keys FIELDNAMES + GITHUB_FIELDNAMES +
+        EMAIL_FIELDNAMES.
     """
     counts = {login.casefold(): value for login, value in pr_counts.items()}
+    profile_emails = {login.casefold(): e for login, e in github_emails.items()}
 
     # group rows by login, remembering where each group first appears
     slots = []  # entries: ("row", row) or ("group", key)
@@ -213,12 +235,15 @@ def consolidate(rows, matches, pr_counts, repository, start, end):
         found = counts.get(login.casefold(), {})
         for field in _PR_FIELDS:
             out[field] = found.get(field, 0)
+        out["github_email"] = profile_emails.get(login.casefold()) or ""
         return out
 
     result = []
     for kind, item in slots:
         if kind == "row":
-            result.append(_blank_row(item))
+            out = _blank_row(item)
+            out["git_email"] = join_emails(identities.get(item["username"], ()))
+            result.append(out)
             continue
         members = groups[item]
         best = min(members, key=lambda r: (-r["commits"], r["username"]))
@@ -226,26 +251,34 @@ def consolidate(rows, matches, pr_counts, repository, start, end):
         out["username"] = best["username"]
         for field in _SUMMED_FIELDS:
             out[field] = sum(member[field] for member in members)
+        out["git_email"] = join_emails(
+            email
+            for member in members
+            for email in identities.get(member["username"], ())
+        )
         result.append(with_counts(out, spellings[item]))
 
     # STAT-11 tier 4: GitHub users that no git identity matched
     for login in sorted(pr_counts, key=str.casefold):
         if login.casefold() in groups:
             continue
-        out = {field: 0 for field in FIELDNAMES}
+        out = _blank_row({field: 0 for field in FIELDNAMES})
         out.update({"username": "", "repository": repository})
         out.update({"start_date": start, "end_date": end})
         result.append(with_counts(out, login))
     return result
 
 
-def unavailable_row(row):
+def unavailable_row(row, emails=()):
     """
-    Copy a git row with the GitHub columns marked unavailable (CLI-3).
+    Copy a git row with the GitHub columns marked unavailable (CLI-3). The
+    git_email column is still filled in (STAT-13).
     @param row: a git row.
-    @returns: a new row whose GitHub columns are all None.
+    @param emails: the author emails of the row's git identity.
+    @returns: a new row whose GitHub columns are None, except git_email.
     """
     out = {field: row[field] for field in FIELDNAMES}
-    for field in GITHUB_FIELDNAMES:
+    for field in GITHUB_FIELDNAMES + EMAIL_FIELDNAMES:
         out[field] = None
+    out["git_email"] = join_emails(emails)
     return out

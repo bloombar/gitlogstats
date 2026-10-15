@@ -87,10 +87,35 @@ def combine(parser, rows, identities, github_repo, args):
         parser.verboseprint(f"GitHub ambiguous: {name} ({', '.join(tiers)})")
     for name in sorted(set(identities) - set(matches)):
         parser.verboseprint(f"GitHub unmatched: {name}")
-    parser.verboseprint(f"GitHub API calls: {api_calls}")
 
+    # STAT-13: public emails of the matched users; a matched user who was not
+    # a candidate (found through a linked email) has a profile fetched now
+    github_emails = {
+        login: (info or {}).get("email") for login, info in candidates.items()
+    }
+    known = {login.casefold() for login in candidates}
+    for login, _tier in matches.values():
+        if login.casefold() in known:
+            continue
+        known.add(login.casefold())
+        api_calls += 1
+        try:
+            github_emails[login] = user_profile(login)["email"]
+        except GitHubError as exc:
+            if "(HTTP 404)" not in str(exc):
+                raise
+    parser.verboseprint(f"GitHub API calls: {api_calls}")
     repository = GitLogsParser.repo_name_from_url(parser.repository)
-    combined = consolidate(rows, matches, pr_counts, repository, args.start, args.end)
+    combined = consolidate(
+        rows,
+        matches,
+        pr_counts,
+        repository,
+        args.start,
+        args.end,
+        identities,
+        github_emails,
+    )
     return combined, matches
 
 
@@ -143,7 +168,9 @@ def github_rows(parser, rows, repo_url, identities, args):
         result, matches = combine(parser, rows, identities, github_repo, args)
     except GitHubError as exc:
         warn(repo_url, exc)
-        result = [unavailable_row(row) for row in rows]
+        result = [
+            unavailable_row(row, identities.get(row["username"], ())) for row in rows
+        ]
 
     if args.user:
         result = [r for r in result if keep_user(r, args.user, matches, identities)]
