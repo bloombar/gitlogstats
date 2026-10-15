@@ -19,16 +19,16 @@
   status: Done
 - id: CLI-3
   title: GitHub pull-request statistics
-  full: "--github adds GitHub pull-request statistics (STAT-8 to STAT-11) for
+  full: "--github adds GitHub pull-request statistics (STAT-8 to STAT-12) for
     repositories hosted on github.com, appending the columns github_username,
-    prs_opened, prs_merged, prs_closed_unmerged to every output format. Without
-    --github, the output and behaviour are unchanged, GitHub is never contacted
-    and the GitHub CLI (gh) is not needed. With --github, the GitHub API is
-    called through gh api, so gh must be installed and signed in. This is
-    checked before any repository is cloned; if it fails, nothing is printed to
-    standard output, the tool exits with status 1, and one plain message on
-    standard error says why and what to do — no stack trace: gh not found:
-    gitlogstats: --github needs the GitHub CLI…"
+    prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged to every output
+    format. Without --github, the output and behaviour are unchanged, GitHub is
+    never contacted and the GitHub CLI (gh) is not needed. With --github, the
+    GitHub API is called through gh api, so gh must be installed and signed in.
+    This is checked before any repository is cloned; if it fails, nothing is
+    printed to standard output, the tool exits with status 1, and one plain
+    message on standard error says why and what to do — no stack trace: gh not
+    found: gitlogstats: --github…"
   section: §5 Command-Line Interface
   family: CLI
   phase: 1
@@ -89,8 +89,8 @@
     containing commas, quotes or line breaks are quoted. The header is printed
     even when there are no rows, and the output ends with a single newline. With
     --github, the columns github_username, prs_opened, prs_merged,
-    prs_closed_unmerged are appended, and are in the header even when there are
-    no rows (CLI-3).
+    prs_closed_unmerged, prs_self_merged are appended, and are in the header
+    even when there are no rows (CLI-3).
   section: §4 Output
   family: OUT
   phase: 1
@@ -329,6 +329,21 @@
     GitHub links one of the identity's commits to an account (the commit's
     author.login, which covers private emails GitHub knows but does not
     publish); or the email equals a candidate's public profile email…"
+  section: §2 Contribution Statistics
+  family: STAT
+  phase: 1
+  status: Done
+- id: STAT-12
+  title: Self-merged pull requests
+  full: With --github, for each contributor, the number of pull requests they
+    authored and also merged themselves (the GitHub user who merged the pull
+    request is its author, ignoring case), with a merge time (merged_at) in the
+    date range. Reported in a prs_self_merged column, appended after
+    prs_closed_unmerged. Every self-merged pull request is also counted in
+    prs_merged (STAT-9), so prs_self_merged is never larger than prs_merged. A
+    merged pull request whose merger GitHub does not report (e.g. a deleted
+    account) is not counted as self-merged. -b and -s/-e apply as for
+    prs_merged.
   section: §2 Contribution Statistics
   family: STAT
   phase: 1

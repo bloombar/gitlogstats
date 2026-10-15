@@ -279,8 +279,13 @@ def test_nickname_and_full_name_for_one_noreply_account():
 # ---- consolidate ------------------------------------------------------------
 
 
-def pr(opened=0, merged=0, closed=0):
-    return {"prs_opened": opened, "prs_merged": merged, "prs_closed_unmerged": closed}
+def pr(opened=0, merged=0, closed=0, self_merged=0):
+    return {
+        "prs_opened": opened,
+        "prs_merged": merged,
+        "prs_closed_unmerged": closed,
+        "prs_self_merged": self_merged,
+    }
 
 
 def test_consolidate_sums_and_picks_busiest_username():
@@ -290,7 +295,7 @@ def test_consolidate_sums_and_picks_busiest_username():
         git_row("Zed Full", commits=7, insertions=100, deletions=20, files=9, merges=3),
     ]
     matches = {"zed": ("zhub", "email"), "Zed Full": ("ZHUB", "username")}
-    out = consolidate(rows, matches, {"zhub": pr(4, 3, 1)}, "repo", "s", "e")
+    out = consolidate(rows, matches, {"zhub": pr(4, 3, 1, 2)}, "repo", "s", "e")
     assert [r["username"] for r in out] == ["Zed Full", "Alone"]
     merged = out[0]
     assert merged["commits"] == 9
@@ -301,6 +306,7 @@ def test_consolidate_sums_and_picks_busiest_username():
     assert merged["github_username"] == "zhub"
     assert (merged["prs_opened"], merged["prs_merged"]) == (4, 3)
     assert merged["prs_closed_unmerged"] == 1
+    assert merged["prs_self_merged"] == 2
     assert merged["repository"] == "repo"
     assert merged["start_date"] == "01/01/2024"
     assert out[1]["github_username"] == ""
@@ -330,17 +336,19 @@ def test_consolidate_column_order_and_zero_counts():
     assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES
     assert out[0]["github_username"] == "ahub"
     assert out[0]["prs_opened"] == out[0]["prs_merged"] == 0
+    assert out[0]["prs_self_merged"] == 0
 
 
 def test_consolidate_github_only_rows_sorted_after_git_rows():
     rows = [git_row("a")]
-    counts = {"Zed": pr(1), "ahub": pr(2, 1), "bob": pr(0, 0, 3)}
+    counts = {"Zed": pr(1), "ahub": pr(2, 1), "bob": pr(0, 1, 3, 1)}
     out = consolidate(rows, {"a": ("AHUB", "email")}, counts, "repo", "S", "E")
     assert [r["github_username"] for r in out] == ["AHUB", "bob", "Zed"]
     assert out[0]["prs_opened"] == 2
     only = out[1]
     assert only["username"] == ""
     assert only["prs_closed_unmerged"] == 3
+    assert only["prs_self_merged"] == 1
     assert (only["repository"], only["start_date"], only["end_date"]) == (
         "repo",
         "S",

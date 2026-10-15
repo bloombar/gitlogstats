@@ -184,7 +184,7 @@ def consolidate(rows, matches, pr_counts, repository, start, end):
     appended after the git rows in login order.
     @param rows: git rows for one repository, from GitLogsParser.parse().
     @param matches: {author_name: (login, tier)} from match_identities.
-    @param pr_counts: {login: {"prs_opened", "prs_merged", "prs_closed_unmerged"}}.
+    @param pr_counts: {login: {PR column: count}} from count_pull_requests.
     @param repository: kept for GitHub-only rows.
     @param start: start date kept for GitHub-only rows.
     @param end: end date kept for GitHub-only rows.
@@ -243,7 +243,7 @@ def unavailable_row(row):
     """
     Copy a git row with the GitHub columns marked unavailable (CLI-3).
     @param row: a git row.
-    @returns: a new row whose four GitHub columns are None.
+    @returns: a new row whose GitHub columns are all None.
     """
     out = {field: row[field] for field in FIELDNAMES}
     for field in GITHUB_FIELDNAMES:

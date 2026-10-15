@@ -114,6 +114,12 @@ If a tier finds several GitHub users for one identity, that tier is skipped as a
 
 **Status:** Done
 
+#### STAT-12 Self-merged pull requests
+
+With `--github`, for each contributor, the number of pull requests they authored and also merged themselves (the GitHub user who merged the pull request is its author, ignoring case), with a merge time (`merged_at`) in the date range. Reported in a `prs_self_merged` column, appended after `prs_closed_unmerged`. Every self-merged pull request is also counted in `prs_merged` (STAT-9), so `prs_self_merged` is never larger than `prs_merged`. A merged pull request whose merger GitHub does not report (e.g. a deleted account) is not counted as self-merged. `-b` and `-s/-e` apply as for `prs_merged`.
+
+**Status:** Done
+
 ### 3. Filtering
 
 #### FILT-1 Date range
@@ -144,7 +150,7 @@ By default, contributors with no activity in the date range are listed with zero
 
 #### OUT-1 CSV output
 
-`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline. With `--github`, the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged` are appended, and are in the header even when there are no rows (CLI-3).
+`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline. With `--github`, the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged` are appended, and are in the header even when there are no rows (CLI-3).
 
 **Status:** Done
 
@@ -188,12 +194,12 @@ Invalid dates, and a start date after the end date, are rejected with a usage er
 
 #### CLI-3 GitHub pull-request statistics
 
-`--github` adds GitHub pull-request statistics (STAT-8 to STAT-11) for repositories hosted on github.com, appending the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged` to every output format. Without `--github`, the output and behaviour are unchanged, GitHub is never contacted and the GitHub CLI (`gh`) is not needed. With `--github`, the GitHub API is called through `gh api`, so `gh` must be installed and signed in. This is checked before any repository is cloned; if it fails, nothing is printed to standard output, the tool exits with status 1, and one plain message on standard error says why and what to do — no stack trace:
+`--github` adds GitHub pull-request statistics (STAT-8 to STAT-12) for repositories hosted on github.com, appending the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged` to every output format. Without `--github`, the output and behaviour are unchanged, GitHub is never contacted and the GitHub CLI (`gh`) is not needed. With `--github`, the GitHub API is called through `gh api`, so `gh` must be installed and signed in. This is checked before any repository is cloned; if it fails, nothing is printed to standard output, the tool exits with status 1, and one plain message on standard error says why and what to do — no stack trace:
 
 - `gh` not found: `gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install it from https://cli.github.com and run 'gh auth login', or run without --github.`
 - `gh` not signed in (`gh auth status` fails): `gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.`
 
-The other options apply to pull requests as follows: `-s/-e` filter each count by its own timestamp, using the same inclusive local-time range as FILT-1; `-u` selects the combined row whose author names, emails or GitHub username match exactly (the username ignoring case); `-b` counts only pull requests whose base branch is that branch, and without `-b` every pull request counts; `-c` removes only rows with neither git nor pull-request activity; `-x` does not apply. For a repository not on github.com, or when GitHub cannot be reached for one repository (no network, rate limit, private repository without access), the git statistics are still reported, the four GitHub columns are empty (`null` in JSON) rather than zero, and the reason is printed to standard error.
+The other options apply to pull requests as follows: `-s/-e` filter each count by its own timestamp, using the same inclusive local-time range as FILT-1; `-u` selects the combined row whose author names, emails or GitHub username match exactly (the username ignoring case); `-b` counts only pull requests whose base branch is that branch, and without `-b` every pull request counts; `-c` removes only rows with neither git nor pull-request activity; `-x` does not apply. For a repository not on github.com, or when GitHub cannot be reached for one repository (no network, rate limit, private repository without access), the git statistics are still reported, the five GitHub columns are empty (`null` in JSON) rather than zero, and the reason is printed to standard error.
 
 **Status:** Done
 

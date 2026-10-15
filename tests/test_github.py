@@ -4,6 +4,7 @@ in for the GitHub CLI, so no test touches the network.
 """
 
 import datetime
+import json
 import os
 import time
 
@@ -25,12 +26,14 @@ from gitlogstats.github import (
 )
 
 REPO = "acme/widgets"
-PULLS = f"repos/{REPO}/pulls?state=all&per_page=100"
-PAGES = ["pulls_page1.json", "pulls_page2.json"]
+GRAPHQL = f"graphql:{REPO}"
+CONTRIBUTORS = f"repos/{REPO}/contributors?per_page=100"
+CONTRIBUTOR_PAGES = ["contributors.json", "contributors_page2.json"]
 
 
-def pulls_routes(shape):
-    return {PULLS: {"pages": PAGES, "shape": shape}}
+def pulls_routes():
+    """The two fixture pages of pull requests, served as gh --paginate prints."""
+    return {GRAPHQL: {"graphql_pages": ["pulls_page1.json", "pulls_page2.json"]}}
 
 
 def utc_z(local_dt):
@@ -40,7 +43,15 @@ def utc_z(local_dt):
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def make_pr(login="u", created=None, merged=None, closed=None, state=None, base="main"):
+def make_pr(
+    login="u",
+    created=None,
+    merged=None,
+    closed=None,
+    state=None,
+    base="main",
+    merged_by=None,
+):
     if state is None:
         state = "closed" if (merged or closed) else "open"
     return {
@@ -51,6 +62,7 @@ def make_pr(login="u", created=None, merged=None, closed=None, state=None, base=
         "merged_at": merged,
         "closed_at": closed,
         "base": base,
+        "merged_by": merged_by,
     }
 
 
@@ -63,6 +75,7 @@ def test_fieldnames():
         "prs_opened",
         "prs_merged",
         "prs_closed_unmerged",
+        "prs_self_merged",
     ]
 
 
@@ -163,10 +176,11 @@ def test_non_github_urls(url):
 
 @pytest.mark.parametrize("shape", ["merged", "newline", "concatenated"])
 def test_pagination_shapes(tmp_path, monkeypatch, shape):
-    calls = install_fake_gh(tmp_path, monkeypatch, pulls_routes(shape))
-    result = gh_api(PULLS, paginate=True)
-    assert [pr["number"] for pr in result] == [1, 2, 3, 4, 5]
-    assert calls() == [["api", PULLS, "--paginate"]]
+    routes = {CONTRIBUTORS: {"pages": CONTRIBUTOR_PAGES, "shape": shape}}
+    calls = install_fake_gh(tmp_path, monkeypatch, routes)
+    result = gh_api(CONTRIBUTORS, paginate=True)
+    assert [c["login"] for c in result] == ["alice-dev", "bob-codes", "carol-writes"]
+    assert calls() == [["api", CONTRIBUTORS, "--paginate"]]
 
 
 def test_gh_api_without_pagination_has_no_flag(tmp_path, monkeypatch):
@@ -223,10 +237,28 @@ def test_parse_json_stream_variants():
 # ─── fetch_pull_requests ─────────────────────────────────────────────────────
 
 
+def node(author="u", kind="User", merger=None, state="OPEN", **fields):
+    """A pull request as GraphQL returns it; merger is a (login, type) pair."""
+    return {
+        "author": {"login": author, "__typename": kind} if author else None,
+        "mergedBy": {"login": merger[0], "__typename": merger[1]} if merger else None,
+        "state": state,
+        "createdAt": None,
+        "mergedAt": None,
+        "closedAt": None,
+        "baseRefName": "main",
+        **fields,
+    }
+
+
+def graphql_route(*pages):
+    return {GRAPHQL: {"graphql_pages": list(pages)}}
+
+
 def test_fetch_pull_requests_fields(tmp_path, monkeypatch):
-    install_fake_gh(tmp_path, monkeypatch, pulls_routes("merged"))
+    install_fake_gh(tmp_path, monkeypatch, pulls_routes())
     prs = fetch_pull_requests(REPO)
-    assert len(prs) == 5
+    assert len(prs) == 6
     assert prs[0] == {
         "login": "alice-dev",
         "user_type": "User",
@@ -235,30 +267,116 @@ def test_fetch_pull_requests_fields(tmp_path, monkeypatch):
         "merged_at": "2026-03-03T10:00:00Z",
         "closed_at": "2026-03-03T10:00:00Z",
         "base": "main",
+        "merged_by": "alice-dev",
     }
     assert prs[1]["merged_at"] is None and prs[1]["state"] == "open"
+    assert prs[1]["merged_by"] is None
+    assert prs[2]["state"] == "closed" and prs[2]["base"] == "develop"
+    assert prs[5]["login"] == "alice-dev" and prs[5]["merged_by"] == "bob-codes"
 
 
 def test_fetch_pull_requests_ghost_and_bot(tmp_path, monkeypatch):
-    install_fake_gh(tmp_path, monkeypatch, pulls_routes("newline"))
+    install_fake_gh(tmp_path, monkeypatch, pulls_routes())
     prs = fetch_pull_requests(REPO)
     assert prs[3]["login"] == "ghost" and prs[3]["user_type"] is None
+    # GraphQL says "dependabot" with type Bot; REST said "dependabot[bot]"
     assert prs[4]["login"] == "dependabot[bot]" and prs[4]["user_type"] == "Bot"
+    assert prs[4]["merged_by"] == "dependabot[bot]"
+
+
+def test_fetch_pull_requests_passes_variables_as_arguments(tmp_path, monkeypatch):
+    calls = install_fake_gh(tmp_path, monkeypatch, pulls_routes())
+    fetch_pull_requests(REPO)
+    (call,) = calls()
+    assert call[:3] == ["api", "graphql", "--paginate"]
+    # every field is a raw string (-f), never a typed field (-F)
+    assert "-F" not in call
+    pairs = {call[i + 1].split("=", 1)[0] for i, a in enumerate(call) if a == "-f"}
+    assert pairs == {"query", "owner", "name"}
+    assert "owner=acme" in call and "name=widgets" in call
+    assert any(a.startswith("query=query(") for a in call)
+
+
+def test_fetch_pull_requests_all_digit_names_stay_strings(tmp_path, monkeypatch):
+    # gh -F would send owner 2048 as a number and GitHub would reject it
+    calls = install_fake_gh(
+        tmp_path, monkeypatch, {"graphql:1234/2048": {"graphql_pages": [[]]}}
+    )
+    fetch_pull_requests("1234/2048")
+    (call,) = calls()
+    assert call[call.index("owner=1234") - 1] == "-f"
+    assert call[call.index("name=2048") - 1] == "-f"
+
+
+def test_fetch_pull_requests_state_mapping(tmp_path, monkeypatch):
+    pages = [[node(state="OPEN"), node(state="CLOSED"), node(state="MERGED")]]
+    install_fake_gh(tmp_path, monkeypatch, graphql_route(*pages))
+    assert [pr["state"] for pr in fetch_pull_requests(REPO)] == [
+        "open",
+        "closed",
+        "closed",
+    ]
+
+
+def test_fetch_pull_requests_collects_every_page(tmp_path, monkeypatch):
+    pages = [[node(author=f"u{i}") for i in range(n, n + 2)] for n in (0, 2, 4)]
+    install_fake_gh(tmp_path, monkeypatch, graphql_route(*pages))
+    logins = [pr["login"] for pr in fetch_pull_requests(REPO)]
+    assert logins == ["u0", "u1", "u2", "u3", "u4", "u5"]
+
+
+def test_fetch_pull_requests_repository_without_pulls(tmp_path, monkeypatch):
+    install_fake_gh(tmp_path, monkeypatch, graphql_route([]))
+    assert fetch_pull_requests(REPO) == []
 
 
 def test_fetch_pull_requests_error(tmp_path, monkeypatch):
     install_fake_gh(
         tmp_path,
         monkeypatch,
-        {PULLS: {"error": "gh: API rate limit exceeded (HTTP 403)\n"}},
+        {GRAPHQL: {"error": "gh: API rate limit exceeded (HTTP 403)\n"}},
     )
     with pytest.raises(GitHubError, match="rate limit"):
         fetch_pull_requests(REPO)
 
 
-def test_fetch_pull_requests_single_page(tmp_path, monkeypatch):
-    install_fake_gh(tmp_path, monkeypatch, {PULLS: {"pages": ["pulls_page1.json"]}})
-    assert fetch_pull_requests(REPO)[0]["base"] == "main"
+def test_fetch_pull_requests_error_without_stderr(tmp_path, monkeypatch):
+    install_fake_gh(tmp_path, monkeypatch, {GRAPHQL: {"error": ""}})
+    with pytest.raises(GitHubError, match="gh api graphql failed"):
+        fetch_pull_requests(REPO)
+
+
+def test_fetch_pull_requests_response_with_errors_key(tmp_path, monkeypatch):
+    body = {"data": {"repository": None}, "errors": [{"message": "Could not resolve"}]}
+    install_fake_gh(tmp_path, monkeypatch, {GRAPHQL: {"raw": json.dumps(body)}})
+    with pytest.raises(GitHubError, match="Could not resolve"):
+        fetch_pull_requests(REPO)
+
+
+def test_fetch_pull_requests_errors_key_without_message(tmp_path, monkeypatch):
+    body = {"errors": [{"type": "X"}]}
+    install_fake_gh(tmp_path, monkeypatch, {GRAPHQL: {"raw": json.dumps(body)}})
+    with pytest.raises(GitHubError, match="unknown error"):
+        fetch_pull_requests(REPO)
+
+
+def test_fetch_pull_requests_missing_repository(tmp_path, monkeypatch):
+    body = {"data": {"repository": None}}
+    install_fake_gh(tmp_path, monkeypatch, {GRAPHQL: {"raw": json.dumps(body)}})
+    with pytest.raises(GitHubError, match="could not read pull requests"):
+        fetch_pull_requests(REPO)
+
+
+def test_fetch_pull_requests_invalid_json(tmp_path, monkeypatch):
+    install_fake_gh(tmp_path, monkeypatch, {GRAPHQL: {"raw": "<html>oops"}})
+    with pytest.raises(GitHubError, match="invalid JSON"):
+        fetch_pull_requests(REPO)
+
+
+def test_fetch_pull_requests_unknown_repository_is_404(tmp_path, monkeypatch):
+    install_fake_gh(tmp_path, monkeypatch)
+    with pytest.raises(GitHubError, match="HTTP 404"):
+        fetch_pull_requests(REPO)
 
 
 # ─── count_pull_requests ─────────────────────────────────────────────────────
@@ -271,16 +389,25 @@ def count_one(pr, start=START, end=END, branch=None):
     return count_pull_requests([pr], start, end, branch)["u"]
 
 
+def counted(opened, merged, closed, self_merged):
+    return {
+        "prs_opened": opened,
+        "prs_merged": merged,
+        "prs_closed_unmerged": closed,
+        "prs_self_merged": self_merged,
+    }
+
+
 def test_counts_from_fixture_prs(tmp_path, monkeypatch):
-    install_fake_gh(tmp_path, monkeypatch, pulls_routes("merged"))
+    install_fake_gh(tmp_path, monkeypatch, pulls_routes())
     prs = fetch_pull_requests(REPO)
     # created_at near month edges is irrelevant here: use a very wide range
     counts = count_pull_requests(prs, "01/01/2020", "12/31/2030")
     assert counts == {
-        "alice-dev": {"prs_opened": 1, "prs_merged": 1, "prs_closed_unmerged": 0},
-        "bob-codes": {"prs_opened": 2, "prs_merged": 0, "prs_closed_unmerged": 1},
-        "ghost": {"prs_opened": 1, "prs_merged": 0, "prs_closed_unmerged": 1},
-        "dependabot[bot]": {"prs_opened": 1, "prs_merged": 1, "prs_closed_unmerged": 0},
+        "alice-dev": counted(2, 2, 0, 1),
+        "bob-codes": counted(2, 0, 1, 0),
+        "ghost": counted(1, 0, 1, 0),
+        "dependabot[bot]": counted(1, 1, 0, 1),
     }
 
 
@@ -290,6 +417,7 @@ def test_open_pr_is_only_opened():
         "prs_opened": 1,
         "prs_merged": 0,
         "prs_closed_unmerged": 0,
+        "prs_self_merged": 0,
     }
 
 
@@ -303,6 +431,7 @@ def test_merged_pr_is_not_closed_unmerged():
         "prs_opened": 1,
         "prs_merged": 1,
         "prs_closed_unmerged": 0,
+        "prs_self_merged": 0,
     }
 
 
@@ -316,6 +445,7 @@ def test_closed_unmerged_pr():
         "prs_opened": 1,
         "prs_merged": 0,
         "prs_closed_unmerged": 1,
+        "prs_self_merged": 0,
     }
 
 
@@ -329,6 +459,7 @@ def test_merged_in_range_but_created_before():
         "prs_opened": 0,
         "prs_merged": 1,
         "prs_closed_unmerged": 0,
+        "prs_self_merged": 0,
     }
 
 
@@ -352,6 +483,7 @@ def test_outside_range_gives_zero_row():
         "prs_opened": 0,
         "prs_merged": 0,
         "prs_closed_unmerged": 0,
+        "prs_self_merged": 0,
     }
 
 
@@ -422,17 +554,69 @@ def test_branch_filter():
     ]
     assert count_pull_requests(prs, START, END)["a"]["prs_opened"] == 2
     only_main = count_pull_requests(prs, START, END, branch="main")
-    assert only_main == {
-        "a": {"prs_opened": 1, "prs_merged": 0, "prs_closed_unmerged": 0}
-    }
+    assert only_main == {"a": counted(1, 0, 0, 0)}
     assert count_pull_requests(prs, START, END, branch="nope") == {}
 
 
 def test_ghost_and_bot_counted_like_others(tmp_path, monkeypatch):
-    install_fake_gh(tmp_path, monkeypatch, pulls_routes("merged"))
+    install_fake_gh(tmp_path, monkeypatch, pulls_routes())
     counts = count_pull_requests(fetch_pull_requests(REPO), "01/01/2020", "12/31/2030")
     assert counts["ghost"]["prs_opened"] == 1
     assert counts["dependabot[bot]"]["prs_merged"] == 1
+
+
+# STAT-12
+
+
+def self_merge(**fields):
+    created = utc_z(D(2026, 3, 10, 12))
+    merged = utc_z(D(2026, 3, 11, 12))
+    return make_pr(created=created, merged=merged, closed=merged, **fields)
+
+
+def test_self_merged_pr_counts_in_merged_too():
+    row = count_one(self_merge(merged_by="u"))
+    assert (row["prs_merged"], row["prs_self_merged"]) == (1, 1)
+
+
+def test_pr_merged_by_someone_else_is_not_self_merged():
+    row = count_one(self_merge(merged_by="other"))
+    assert (row["prs_merged"], row["prs_self_merged"]) == (1, 0)
+
+
+def test_self_merge_compares_logins_ignoring_case():
+    row = count_pull_requests([self_merge(login="Ada", merged_by="aDA")], START, END)
+    assert row["Ada"]["prs_self_merged"] == 1
+
+
+def test_unknown_merger_is_not_self_merged():
+    assert count_one(self_merge(merged_by=None))["prs_self_merged"] == 0
+
+
+def test_self_merge_outside_the_range_is_not_counted():
+    pr = self_merge(merged_by="u")
+    assert count_one(pr, "04/01/2026", "04/30/2026")["prs_self_merged"] == 0
+
+
+def test_self_merge_respects_the_branch_filter():
+    prs = [
+        self_merge(merged_by="u", base="dev"),
+        self_merge(merged_by="other", base="main"),
+    ]
+    assert count_pull_requests(prs, START, END, "main")["u"] == counted(1, 1, 0, 0)
+    assert count_pull_requests(prs, START, END, "dev")["u"] == counted(1, 1, 0, 1)
+    assert count_pull_requests(prs, START, END)["u"] == counted(2, 2, 0, 1)
+
+
+def test_unmerged_pr_is_never_self_merged():
+    pr = make_pr(created=utc_z(D(2026, 3, 10, 12)), merged_by="u")
+    assert count_one(pr)["prs_self_merged"] == 0
+
+
+def test_pr_dict_without_merged_by_counts_as_not_self_merged():
+    pr = self_merge()
+    del pr["merged_by"]
+    assert count_one(pr)["prs_self_merged"] == 0
 
 
 def test_no_prs_gives_empty_counts():
