@@ -7,7 +7,7 @@
 // The GitHub Project and the repo its issues live in.
 export const OWNER = 'bloombar'
 export const PROJECT_NUMBER = 4
-export const REPO = 'bloombar/git-developer-contribution-analysis'
+export const REPO = 'bloombar/gitlogstats'
 
 // Phases are carried by repo Milestones; the project's built-in Milestone
 // field can be used to filter by phase. Titles must match the milestones.

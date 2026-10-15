@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gitlogstats"
 description = "Track developers' contributions to one or more git repositories within a particular time range."
-version = "1.0.7"
+version = "1.0.8"
 authors = [
   { name="Tobody Tothing", email="nobody.nothing@nowhere.com" },
 ]
@@ -35,9 +35,9 @@ omit = ["src/gitlogstats/__main__.py"]
 show_missing = true
 
 [project.urls]
-"Homepage" = "https://github.com/bloombar/git-developer-contribution-analysis"
-"Repository" = "https://github.com/bloombar/git-developer-contribution-analysis.git"
-"Bug Tracker" = "https://github.com/bloombar/git-developer-contribution-analysis/issues"
+"Homepage" = "https://github.com/bloombar/gitlogstats"
+"Repository" = "https://github.com/bloombar/gitlogstats.git"
+"Bug Tracker" = "https://github.com/bloombar/gitlogstats/issues"
 
 [project.scripts]
 gitlogstats = "gitlogstats.__main__:main"
