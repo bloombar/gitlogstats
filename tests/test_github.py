@@ -79,6 +79,10 @@ def test_fieldnames():
     ]
 
 
+def test_email_fieldnames():
+    assert github.EMAIL_FIELDNAMES == ["git_email", "github_email"]
+
+
 def test_check_gh_signed_in(tmp_path, monkeypatch):
     calls = install_fake_gh(tmp_path, monkeypatch)
     assert check_gh() is None
