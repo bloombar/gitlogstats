@@ -272,7 +272,10 @@ def test_fetch_pull_requests_fields(tmp_path, monkeypatch):
         "closed_at": "2026-03-03T10:00:00Z",
         "base": "main",
         "merged_by": "alice-dev",
+        "merge_commit": "abc123",
+        "merge_committed_at": "2026-03-03T09:59:55Z",
     }
+    assert prs[1]["merge_commit"] is None and prs[1]["merge_committed_at"] is None
     assert prs[1]["merged_at"] is None and prs[1]["state"] == "open"
     assert prs[1]["merged_by"] is None
     assert prs[2]["state"] == "closed" and prs[2]["base"] == "develop"
@@ -728,3 +731,72 @@ def test_contributor_logins_empty_repository(tmp_path, monkeypatch):
     path = f"repos/{REPO}/contributors?per_page=100"
     install_fake_gh(tmp_path, monkeypatch, {path: {"pages": []}})
     assert contributor_logins(REPO) == set()
+
+
+# --- pushes and website commits (STAT-14, STAT-15)
+
+
+def test_fetch_pushes_encodes_the_branch_and_keeps_only_pushes(monkeypatch):
+    asked = []
+
+    def fake_api(path, paginate=False):
+        asked.append((path, paginate))
+        return [
+            {"activity_type": "push", "timestamp": "t1", "actor": {"login": "a"}},
+            {"activity_type": "force_push", "timestamp": "t2", "actor": None},
+            {"activity_type": "pr_merge", "timestamp": "t3", "actor": {"login": "b"}},
+            {"activity_type": "branch_creation", "timestamp": "t4", "actor": None},
+        ]
+
+    monkeypatch.setattr(github, "gh_api", fake_api)
+    pushes = github.fetch_pushes("o/r", "feat/a b#1&x")
+    assert asked == [
+        ("repos/o/r/activity?per_page=100&ref=refs/heads/feat/a%20b%231%26x", True)
+    ]
+    assert pushes == [
+        {"login": "a", "timestamp": "t1"},
+        {"login": "ghost", "timestamp": "t2"},
+    ]
+
+
+def test_count_pushes_uses_the_inclusive_range():
+    pushes = [
+        {"login": "a", "timestamp": "2024-06-01T12:00:00Z"},
+        {"login": "a", "timestamp": "2020-01-01T12:00:00Z"},
+        {"login": "b", "timestamp": "2024-06-02T12:00:00Z"},
+        {"login": "c", "timestamp": None},
+    ]
+    assert github.count_pushes(pushes, "01/01/2024", "12/31/2024") == {"a": 1, "b": 1}
+
+
+def test_count_web_commits_skips_other_committers_and_merge_results():
+    # 1710235800 is 2024-03-12T09:30:00Z
+    prs = [
+        # squash merged: GitHub committed 10 seconds before the merge time
+        {
+            "merged_at": "2024-03-12T09:30:10Z",
+            "merge_commit": "sq",
+            "merge_committed_at": "2024-03-12T09:30:00Z",
+        },
+        # no merge commit known: compared by merge time
+        {"merged_at": "2024-03-20T00:00:00Z"},
+        {"merged_at": None, "merge_commit": None, "merge_committed_at": None},
+    ]
+    gh = "noreply@github.com"
+    commits = [
+        {"hash": "sq", "name": "A", "committer_email": gh, "committed": 1710235800},
+        # another commit of a rebase merge: 2 seconds from the merge commit
+        {"hash": "r2", "name": "A", "committer_email": gh, "committed": 1710235802},
+        {"hash": "x1", "name": "A", "committer_email": gh, "committed": 1710235803},
+        {"hash": "x2", "name": "A", "committer_email": gh, "committed": 1710235796},
+        {
+            "hash": "x3",
+            "name": "A",
+            "committer_email": " NoReply@GitHub.com ",
+            "committed": 5,
+        },
+        {"hash": "x4", "name": "B", "committer_email": "b@example.com", "committed": 5},
+        {"hash": "m", "name": "B", "committer_email": gh, "committed": 1710892800 - 1},
+    ]
+    # x1 and x2 are 3 and 4 seconds away; "m" is 1 second before the merge
+    assert github.count_web_commits(commits, prs) == {"A": 3}
