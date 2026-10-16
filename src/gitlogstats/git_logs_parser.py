@@ -17,6 +17,10 @@ RECORD_SEP = "\x1e"
 FIELD_SEP = "\x1f"
 LOG_FORMAT = f"--format={RECORD_SEP}%H{FIELD_SEP}%aN{FIELD_SEP}%aE"
 
+# OUT-7: the same header with the commit date, as a local mm/dd/yyyy day
+DAY_LOG_FORMAT = f"{LOG_FORMAT}{FIELD_SEP}%cd"
+DAY_DATE_ARG = "--date=format-local:%m/%d/%Y"
+
 FILES_RE = re.compile(r"(\d+) files? changed")
 INSERTIONS_RE = re.compile(r"(\d+) insertions?\(\+\)")
 DELETIONS_RE = re.compile(r"(\d+) deletions?\(-\)")
@@ -151,6 +155,7 @@ class GitLogsParser:
             "--no-merges",
             *(["--shortstat"] if shortstat else []),
             log_format,
+            *([DAY_DATE_ARG] if log_format == DAY_LOG_FORMAT else []),
             *self.date_range_args(),
             "--",
             ".",
@@ -173,7 +178,7 @@ class GitLogsParser:
                 pathspecs.append(f":(exclude,glob)**/{pattern}/**")
         return pathspecs
 
-    def merge_log_command(self):
+    def merge_log_command(self, log_format=LOG_FORMAT):
         """
         Build the git log command that lists the merge commits made directly on
         the analyzed branch in the date range, with their authors.
@@ -181,6 +186,8 @@ class GitLogsParser:
         branch to update it) are not on the branch's first-parent line, so they
         are left out. File exclusions do not apply: a merge brings in a branch,
         whichever files it touches.
+        @param log_format: the --format argument; DAY_LOG_FORMAT adds each
+            merge's day (OUT-7)
         @returns: the command as a list of arguments, ready for subprocess
         """
         return [
@@ -188,7 +195,8 @@ class GitLogsParser:
             "log",
             "--first-parent",
             "--merges",
-            LOG_FORMAT,
+            log_format,
+            *([DAY_DATE_ARG] if log_format == DAY_LOG_FORMAT else []),
             *self.date_range_args(),
         ]
 
@@ -245,7 +253,7 @@ class GitLogsParser:
         """
         Split raw git log output (produced by git_log_command) into per-commit records.
         @param logs: the text output of git log
-        @returns: a list of dictionaries, one per commit, with the author's name and email and the commit's files, insertions and deletions
+        @returns: a list of dictionaries, one per commit, with the author's name and email and the commit's files, insertions and deletions, and its day (OUT-7) when the log has one
         """
         commits = []
         for record in logs.split(RECORD_SEP)[1:]:
@@ -256,16 +264,17 @@ class GitLogsParser:
             files = FILES_RE.search(body)
             insertions = INSERTIONS_RE.search(body)
             deletions = DELETIONS_RE.search(body)
-            commits.append(
-                {
-                    "hash": fields[0],
-                    "name": fields[1],
-                    "email": fields[2],
-                    "files": int(files.group(1)) if files else 0,
-                    "insertions": int(insertions.group(1)) if insertions else 0,
-                    "deletions": int(deletions.group(1)) if deletions else 0,
-                }
-            )
+            commit = {
+                "hash": fields[0],
+                "name": fields[1],
+                "email": fields[2],
+                "files": int(files.group(1)) if files else 0,
+                "insertions": int(insertions.group(1)) if insertions else 0,
+                "deletions": int(deletions.group(1)) if deletions else 0,
+            }
+            if len(fields) > 3:
+                commit["day"] = fields[3].strip()
+            commits.append(commit)
         return commits
 
     def parse(self):
@@ -275,12 +284,59 @@ class GitLogsParser:
         """
         commits = self.run_git_log(self.git_log_command())
         merges = self.run_git_log(self.merge_log_command())
+        return self.tally(commits, merges)
 
-        # limit to the specified username, if any; otherwise all contributors
+    def parse_days(self, extra_days=()):
+        """
+        OUT-7: parse the git logs one day at a time.
+        @param extra_days: days (mm/dd/yyyy) to report even without git
+            activity, e.g. days with GitHub activity
+        @returns: {day: contribution stats of all users on that day, as parse()
+            returns them}, for every day with a commit or merge and every extra
+            day, in date order
+        """
+        commits = self.run_git_log(self.git_log_command(DAY_LOG_FORMAT))
+        merges = self.run_git_log(self.merge_log_command(DAY_LOG_FORMAT))
+        days = {day: ([], []) for day in extra_days}
+        for commit in commits:
+            days.setdefault(commit["day"], ([], []))[0].append(commit)
+        for merge in merges:
+            days.setdefault(merge["day"], ([], []))[1].append(merge)
+        contributors = self.contributors()  # once, not once per day
+        order = sorted(days, key=lambda d: datetime.datetime.strptime(d, "%m/%d/%Y"))
+        return {day: self.tally(*days[day], contributors) for day in order}
+
+    def day_rows(self):
+        """
+        OUT-7: the rows of parse_days as one list, each with its "date".
+        @returns: a list of row dictionaries
+        """
+        return [
+            dict(row, date=day)
+            for day, rows in self.parse_days().items()
+            for row in rows
+        ]
+
+    def contributors(self):
+        """
+        The contributors to report: the one given with -u, or everyone.
+        @returns: a list of usernames
+        """
         if self.username:
-            contributors = [self.username]
-        else:
-            contributors = self.get_contributors()
+            return [self.username]
+        return self.get_contributors()
+
+    def tally(self, commits, merges, contributors=None):
+        """
+        Credit commits and merges to each contributing user.
+        @param commits: non-merge commits, from parse_log
+        @param merges: merge commits, from parse_log
+        @param contributors: the usernames to report; defaults to contributors()
+        @returns: contribution stats of all users, as a list of dictionaries, one per user
+        """
+        # limit to the specified username, if any; otherwise all contributors
+        if contributors is None:
+            contributors = self.contributors()
 
         # set up stats for each contributor in dictionary form
         entries = {}
