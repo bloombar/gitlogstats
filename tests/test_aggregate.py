@@ -6,6 +6,7 @@ All names, emails and logins here are invented.
 import pytest
 
 from gitlogstats.aggregate import (
+    DAY,
     DEVELOPER,
     REPOSITORY,
     aggregate,
@@ -363,6 +364,92 @@ class TestByRepository:
         assert all(two[f] is None for f in PR_COUNTS + ACTIVITY_FIELDNAMES)
 
 
-@pytest.mark.parametrize("mode", [DEVELOPER, REPOSITORY])
+def day_row(row, date):
+    """A row for a single day (OUT-7)."""
+    return dict(row, date=date)
+
+
+class TestByDay:
+    def test_fieldnames(self):
+        assert fieldnames(DAY, False) == [
+            "date",
+            *GIT_COUNTS,
+            "repositories",
+            "contributors",
+        ]
+        assert fieldnames(DAY, True) == fieldnames(DAY, False) + [
+            *PR_COUNTS,
+            *ACTIVITY_FIELDNAMES,
+        ]
+
+    def test_sums_each_day_in_date_order(self):
+        rows = [
+            day_row(git_row("Ada", "one", commits=2, insertions=3), "01/02/2025"),
+            day_row(git_row("Ada", "one", commits=1, files=1), "12/31/2024"),
+            day_row(git_row("Bob", "two", commits=1, deletions=4), "12/31/2024"),
+            day_row(git_row("Ada", "two", commits=1, insertions=5), "12/31/2024"),
+        ]
+        out = aggregate(rows, DAY, False)
+        assert out == [
+            {
+                "date": "12/31/2024",
+                "commits": 3,
+                "insertions": 5,
+                "deletions": 4,
+                "files": 1,
+                "merges": 0,
+                "repositories": 2,
+                "contributors": 2,  # Ada counts once over two repositories
+            },
+            {
+                "date": "01/02/2025",
+                "commits": 2,
+                "insertions": 3,
+                "deletions": 0,
+                "files": 0,
+                "merges": 0,
+                "repositories": 1,
+                "contributors": 1,
+            },
+        ]
+
+    def test_inactive_rows_and_days_are_left_out(self):
+        rows = [
+            day_row(git_row("Ada", "one"), "03/01/2024"),
+            day_row(git_row("Bob", "two", commits=0), "03/01/2024"),
+            day_row(git_row("Bob", "two", commits=0), "03/02/2024"),
+        ]
+        (row,) = aggregate(rows, DAY, False)
+        assert (row["date"], row["repositories"], row["contributors"]) == (
+            "03/01/2024",
+            1,
+            1,
+        )
+
+    def test_github_counts_and_one_person_under_two_logins_cases(self):
+        rows = [
+            day_row(github_row("ada", "one", login="AdaL", prs_opened=1), "03/01/2024"),
+            day_row(
+                github_row("", "two", login="adal", commits=0, pushes_to_default=2),
+                "03/01/2024",
+            ),
+            day_row(
+                github_row("", "two", login="mia", commits=0, prs_merged=1),
+                "03/01/2024",
+            ),
+            day_row(unavailable("bob", "three"), "03/01/2024"),
+            day_row(unavailable("bob", "three"), "03/02/2024"),
+        ]
+        first, second = aggregate(rows, DAY, True)
+        assert list(first) == fieldnames(DAY, True)
+        assert (first["repositories"], first["contributors"]) == (3, 3)
+        assert (first["prs_opened"], first["prs_merged"]) == (1, 1)
+        assert (first["pushes_to_default"], first["commits"]) == (2, 2)
+        # only a repository GitHub could not be asked about was active that day
+        assert second["commits"] == 1
+        assert all(second[f] is None for f in PR_COUNTS + ACTIVITY_FIELDNAMES)
+
+
+@pytest.mark.parametrize("mode", [DEVELOPER, REPOSITORY, DAY])
 def test_no_rows(mode):
     assert aggregate([], mode, True) == []

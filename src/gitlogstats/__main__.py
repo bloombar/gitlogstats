@@ -15,7 +15,7 @@ from .github import (
     GitHubUnavailable,
     check_gh,
 )
-from .github_stats import github_rows
+from .github_stats import github_day_rows, github_rows
 
 
 def valid_date(value):
@@ -151,7 +151,8 @@ def main():
         "-a",
         "--aggregate",
         help="Combine the results into one row per developer, summed over all "
-        "repositories, or one row per repository, summed over its contributors",
+        "repositories, one row per repository, summed over its contributors, "
+        "or one row per day with activity, summed over everyone",
         default=None,
         choices=aggregate.MODES,
     )
@@ -253,18 +254,31 @@ def main():
             verbose=args.verbose,
             clean=False if args.github else args.clean,
         )
-        rows = last_parser.parse()
-        if args.github:
-            rows = github_rows(
-                last_parser, rows, repo_url, last_parser.get_identities(), args
-            )
+        if args.aggregate == aggregate.DAY:
+            # OUT-7: rows for single days, each with its date
+            if args.github:
+                rows = github_day_rows(
+                    last_parser, repo_url, last_parser.get_identities(), args
+                )
+            else:
+                rows = [
+                    dict(row, date=day)
+                    for day, day_rows in last_parser.parse_days().items()
+                    for row in day_rows
+                ]
+        else:
+            rows = last_parser.parse()
+            if args.github:
+                rows = github_rows(
+                    last_parser, rows, repo_url, last_parser.get_identities(), args
+                )
         all_results.extend(rows)  # collect across repos
 
     # emit a single table (or JSON array) covering all repositories
     if last_parser is not None:
         # an empty CSV table still gets the columns it would have had
         if args.aggregate:
-            # OUT-6: one row per developer or per repository
+            # OUT-6, OUT-7: one row per developer, repository or day
             all_results = aggregate.aggregate(all_results, args.aggregate, args.github)
             fieldnames = aggregate.fieldnames(args.aggregate, args.github)
         elif args.github:

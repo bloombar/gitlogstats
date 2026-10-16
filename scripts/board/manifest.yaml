@@ -163,7 +163,7 @@
   section: §4 Output
   family: OUT
   phase: 1
-  status: Todo
+  status: Done
 - id: PKG-1
   title: Installable package
   full: The tool installs with pip install gitlogstats, which provides a

@@ -19,9 +19,11 @@ from gitlogstats.github import (
     commit_login,
     contributor_logins,
     count_pull_requests,
+    event_days,
     fetch_pull_requests,
     gh_api,
     github_repo_from_url,
+    local_day,
     user_profile,
 )
 
@@ -800,3 +802,35 @@ def test_count_web_commits_skips_other_committers_and_merge_results():
     ]
     # x1 and x2 are 3 and 4 seconds away; "m" is 1 second before the merge
     assert github.count_web_commits(commits, prs) == {"A": 3}
+
+
+# ─── days (OUT-7) ────────────────────────────────────────────────────────────
+
+
+def test_local_day_of_timestamp_and_epoch_seconds():
+    late = datetime.datetime(2024, 3, 10, 23, 59, 59)
+    early = datetime.datetime(2024, 3, 11, 0, 0, 0)
+    assert local_day(utc_z(late)) == "03/10/2024"
+    assert local_day(utc_z(early)) == "03/11/2024"
+    assert local_day(time.mktime(late.timetuple())) == "03/10/2024"
+    assert local_day(int(time.mktime(early.timetuple()))) == "03/11/2024"
+
+
+def test_event_days_lists_every_pull_request_and_push_day_in_range():
+    day = lambda d, h=12: utc_z(datetime.datetime(2024, 3, d, h))
+    prs = [
+        make_pr(created=day(1), merged=day(2), closed=day(2)),
+        make_pr(created=day(3), closed=day(4)),
+        make_pr(created=day(5)),
+        make_pr(created=utc_z(datetime.datetime(2023, 12, 31, 23, 59, 59))),
+    ]
+    pushes = [{"login": "u", "timestamp": day(6)}, {"login": "u", "timestamp": day(31)}]
+    assert event_days(prs, pushes, "01/01/2024", "03/30/2024") == {
+        "03/01/2024",
+        "03/02/2024",
+        "03/03/2024",
+        "03/04/2024",
+        "03/05/2024",
+        "03/06/2024",
+    }
+    assert event_days([], [], "01/01/2024", "03/30/2024") == set()

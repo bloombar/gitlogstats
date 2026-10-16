@@ -302,6 +302,36 @@ def _range_test(start, end):
     return in_range
 
 
+def local_day(moment):
+    """
+    OUT-7: the local day of a moment, as git reports a commit's day.
+    @param moment: a GitHub UTC timestamp string, or seconds since the epoch
+    @returns: the day as mm/dd/yyyy
+    """
+    if isinstance(moment, str):
+        moment = _local_time(moment)
+    else:
+        moment = datetime.datetime.fromtimestamp(moment)
+    return moment.strftime("%m/%d/%Y")
+
+
+def event_days(prs, pushes, start, end):
+    """
+    OUT-7: the days in a date range on which a pull request was opened,
+    merged or closed, or a push was made.
+    @param prs: the list from fetch_pull_requests
+    @param pushes: the list from fetch_pushes
+    @param start: first day, mm/dd/yyyy
+    @param end: last day, mm/dd/yyyy
+    @returns: a set of days, mm/dd/yyyy
+    """
+    in_range = _range_test(start, end)
+    moments = [push["timestamp"] for push in pushes]
+    for pr in prs:
+        moments += [pr["created_at"], pr["merged_at"], pr["closed_at"]]
+    return {local_day(moment) for moment in moments if in_range(moment)}
+
+
 def count_pull_requests(prs, start, end, branch=None):
     """
     STAT-8, STAT-9, STAT-10, STAT-12: count each user's pull requests in a date range.
