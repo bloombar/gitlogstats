@@ -12,7 +12,7 @@ This script calculates the following, for each developer in each repository:
 - number of **files changed**
 - number of **merges** into the analyzed branch
 
-With `--github`, it also reports each developer's GitHub **pull requests** opened, merged, closed without merging and merged by themselves, their **pushes** to the analyzed branch and their commits made on GitHub's **website** (see [GitHub pull requests](#github-pull-requests)).
+With `--github`, it also reports each developer's GitHub **pull requests** opened, merged, closed without merging and merged by themselves, their **pushes** to the analyzed branch, their commits made on GitHub's **website**, and their **git and GitHub email addresses**. It matches each GitHub account to the developer's git names and combines a developer who committed under several names into one row (see [GitHub statistics](#github-statistics)).
 
 The results can be formatted as `csv`, `json`, or `markdown`.
 
@@ -140,9 +140,9 @@ By default, every contributor in a repository's history is listed, with zeros fo
 gitlogstats -rf repos.txt -c
 ```
 
-### GitHub pull requests
+### GitHub statistics
 
-Add `--github` to also count each contributor's pull requests, pushes and website commits. Nine columns are appended to every output format:
+Add `--github` to also report each contributor's pull requests, pushes, website commits and email addresses. Nine columns are appended to every output format:
 
 | Column                | Meaning                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -167,7 +167,7 @@ gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install
 gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.
 ```
 
-**Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests but has no commits is listed in a row of their own with an empty `username` and zero git statistics. When GitHub could not be asked, `git_email` is still filled in and `github_email` is empty. The emails come from the whole history of the branch, not only from commits in the date range.
+**Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests or pushed but has no commits is listed in a row of their own with an empty `username` and zero git statistics. When GitHub could not be asked, `git_email` is still filled in and `github_email` is empty. The emails come from the whole history of the branch, not only from commits in the date range.
 
 **Limits of pushes and website commits.** Pushes come from GitHub's repository activity record, which starts in September 2023: earlier pushes are not counted, however old the date range. A file edited on the website directly on the analyzed branch is recorded by GitHub as a push too, so it counts in both `pushes_to_default` and `web_commits`. Reading it works for any public repository you can see; for a private one you need access to it, and if GitHub refuses, the repository's GitHub columns are empty with the reason on standard error, as above. A push is credited to the GitHub user who pushed it, so a person who only pushes (and has no commits or pull requests in the range) still gets a row of their own. Pushes made while a tag or commit (not a branch) is checked out with `-b` are not counted. Website commits are recognised by GitHub being the committer, so commits made through GitHub's API, for example in the `github.dev` editor, are counted as website commits too, and so is the first commit GitHub creates when a repository is created on the website. Website commits follow `commits`: the same date range, exclusions (`-x`) and branch, credited to the commit's author and added up when names are combined into one row.
 
@@ -181,11 +181,11 @@ If a step finds several users it is skipped as ambiguous and the next is tried. 
 
 **How the other options apply.**
 
-- `-s` / `-e`: each pull request count uses its own timestamp (opened, merged or closed) against the same inclusive local-time range as commits.
-- `-b`: only pull requests whose base branch is that branch are counted; without `-b`, all pull requests count.
+- `-s` / `-e`: each pull request count uses its own timestamp (opened, merged or closed), and each push its push time, against the same inclusive local-time range as commits.
+- `-b`: only pull requests whose base branch is that branch are counted (without `-b`, all pull requests count), and pushes and website commits are counted on that branch instead of the default branch.
 - `-u`: selects the combined row whose author names or emails equal the value exactly, or whose GitHub username equals it ignoring case. The whole combined row is reported, so `-u` with one email address also includes the person's commits under their other names and emails, and a value that matches nobody prints no row.
-- `-c`: removes only rows with no git activity and no pull requests.
-- `-x`: has no effect on pull requests.
+- `-c`: removes only rows with no git activity, no pull requests and no pushes. Email addresses do not count as activity.
+- `-x`: has no effect on pull requests or pushes; it does apply to `web_commits`, which only counts commits that `commits` counts.
 
 ### Formatting the results
 
@@ -227,7 +227,7 @@ Some merges are not counted:
 - Merges on other branches, unless that branch is analyzed with `-b`.
 - Local merges that were never pushed.
 
-A merge made on GitHub uses the person's GitHub profile name and email, which may differ from their local git settings. They can then appear under two names (see [Redundant usernames](#redundant-usernames)).
+A merge made on GitHub uses the person's GitHub profile name and email, which may differ from their local git settings. They can then appear under two names; `--github` combines them into one row (see [Redundant usernames](#redundant-usernames)).
 
 Each commit is credited to its author's name, after applying the repository's `.mailmap` if it has one. Merges are credited the same way. Commit messages are never read, so statistics are the same whether messages are one line, many lines, or empty.
 
@@ -252,6 +252,8 @@ Most likely, the contributor has failed to update their version control settings
 
 ### Redundant usernames
 
-The output of the script sometimes lists the same individual contributor under more than one git username... This is most likely due to different username settings for various git and GitHub clients.
+The output of the script sometimes lists the same individual contributor under more than one git username. This is most likely due to different username settings for various git and GitHub clients: for example, a merge made on GitHub's website uses the person's GitHub display name, while their own commits use their local `user.name`.
 
-If a single developer has multiple usernames that all show the same statistics, then only count those stats once. Otherwise, if a single developer has multiple usernames that show different statistics, then add them together to come up with the total for that developer.
+With `--github`, names that belong to the same GitHub account are combined into one row automatically, with their statistics added up (see [GitHub statistics](#github-statistics)). Check the `github_username` and `git_email` columns to see which names were combined. A name GitHub cannot link to any account, for example one whose email is a laptop's default address, keeps a row of its own; add the two names to a `.mailmap` file to combine them.
+
+Without `--github`, or for a repository not on GitHub, add up the rows of a developer who appears under several names yourself, or map the names together in a `.mailmap` file.
