@@ -29,13 +29,19 @@ This document describes what the tool does today and what is planned. Each requi
 
 #### REPO-3 Local clone cache
 
-Repositories are cloned into a `repos/` directory under the current working directory, in a folder named the way `git clone` names it (the last path segment, minus a trailing `.git`; dots in the name are kept). On later runs the existing clone is updated with `git pull` instead of being cloned again.
+Repositories are cloned into a `repos/` directory under the current working directory, in a folder named the way `git clone` names it (the last path segment, minus a trailing `.git`; dots in the name are kept). On later runs the existing clone is updated with `git pull` instead of being cloned again. `--clobber` removes the clones after the run (REPO-5).
 
 **Status:** Done
 
 #### REPO-4 Branch selection
 
 `-b/--branch <name>` checks out the given branch before statistics are computed. Without `-b`, the repository's default branch is used — including when an earlier run left the cached clone on another branch. With `--github`, it also limits which pull requests are counted to those whose base branch is that branch (CLI-3).
+
+**Status:** Done
+
+#### REPO-5 Remove clones after the run
+
+`--clobber` deletes the clones this run used from the `repos/` directory (REPO-3) once the results have been printed, and then removes `repos/` itself if nothing else is left in it. Clones in `repos/` that this run did not use are kept. It is off by default, so clones are kept and reused by later runs. If the run fails before the results are printed, nothing is deleted, so the clones can be inspected. Only directories inside `repos/` are deleted; a symbolic link in place of a clone is removed without following it. If `repos/` is itself a symbolic link to another directory, the clones are deleted from that directory and the link is kept. A clone that cannot be fully deleted (e.g. it contains a folder the user cannot open) is reported on standard error and the remaining clones are still deleted; the exit status stays 0, since the results were printed. Read-only files that git writes inside a clone (as on Windows) are deleted too. With `-v`, each deleted path is printed to standard error. The name follows build tools such as Rake, where `clean` removes intermediate files and `clobber` also removes caches; it is unrelated to `-c/--clean` (FILT-4).
 
 **Status:** Done
 
