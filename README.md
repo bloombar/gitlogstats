@@ -29,7 +29,7 @@ The command `gitlogstats --help` shows the usage instructions:
 ```
 usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START]
                    [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}]
-                   [-b BRANCH] [-v] [-c] [--github]
+                   [-b BRANCH] [-v] [-c] [--github] [--clobber]
 
 options:
   -h, --help            show this help message and exit
@@ -60,6 +60,9 @@ options:
                         and their commits made on the GitHub website, and
                         match GitHub users to git authors. Needs the GitHub
                         CLI (gh), signed in
+  --clobber             Delete the repository clones this run used from the
+                        repos/ directory after printing the results (default:
+                        keep them for faster later runs)
 ```
 
 In case `gitlogstats` is not found as a command, even after installing, try `python -m gitlogstats` or `python3 -m gitlogstats` instead.
@@ -139,6 +142,16 @@ By default, every contributor in a repository's history is listed, with zeros fo
 ```
 gitlogstats -rf repos.txt -c
 ```
+
+### Cloned repositories
+
+Each repository is cloned into a `repos/` directory under the directory you run the command from, and later runs update (`git pull`) the existing clone instead of cloning again, which makes them much faster. Add `--clobber` to delete the clones the run used, once the results have been printed; `repos/` itself is removed too if nothing else is left in it. Clones from other runs are kept, and nothing is deleted if the run fails before printing, so you can inspect it. With `-v`, each deleted path is listed on standard error.
+
+```
+gitlogstats -rf repos.txt --clobber
+```
+
+`--clobber` is unrelated to `-c/--clean`, which only hides contributors without activity.
 
 ### GitHub statistics
 
