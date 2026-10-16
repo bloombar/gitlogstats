@@ -63,9 +63,17 @@ class Repo:
             GIT_COMMITTER_DATE=date,
         )
 
-    def commit(self, author, message, date="2024-03-10 12:00:00", email=None, extra=()):
+    def commit(
+        self,
+        author,
+        message,
+        date="2024-03-10 12:00:00",
+        email=None,
+        extra=(),
+        committer=None,
+    ):
         """Stage everything and commit it as *author* on *date* (local time)."""
-        env = self.identity(author, date, email)
+        env = self.identity(author, date, email, committer)
         self.git("add", "-A")
         self.git(
             "commit",
@@ -976,6 +984,7 @@ GITHUB_COLUMNS = [
 ]
 PR_COLUMNS = GITHUB_COLUMNS[1:]
 EMAIL_COLUMNS = ["git_email", "github_email"]
+ACTIVITY_COLUMNS = ["pushes_to_default", "web_commits"]
 NOT_INSTALLED = (
     "gitlogstats: --github needs the GitHub CLI (gh), which is not installed. "
     "Install it from https://cli.github.com and run 'gh auth login', "
@@ -996,8 +1005,13 @@ def at(year, month, day, hour=12, minute=0, second=0):
     return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def pr(login, created, merged=None, closed=None, base="main", merged_by=None):
-    """A pull request as the GitHub GraphQL API returns it."""
+def pr(
+    login, created, merged=None, closed=None, base="main", merged_by=None, commit=None
+):
+    """
+    A pull request as the GitHub GraphQL API returns it. *commit* is the merge
+    commit, as (hash, committer time).
+    """
     return {
         "author": {"login": login, "__typename": "User"},
         "mergedBy": {"login": merged_by, "__typename": "User"} if merged_by else None,
@@ -1006,7 +1020,16 @@ def pr(login, created, merged=None, closed=None, base="main", merged_by=None):
         "mergedAt": merged,
         "closedAt": merged or closed,
         "baseRefName": base,
+        "mergeCommit": {"oid": commit[0], "committedDate": commit[1]}
+        if commit
+        else None,
     }
+
+
+def push(login, when, kind="push", ref="refs/heads/main"):
+    """An entry of GitHub's repository activity record (STAT-14)."""
+    actor = {"login": login, "type": "User"} if login else None
+    return {"timestamp": when, "activity_type": kind, "actor": actor, "ref": ref}
 
 
 def head(repo):
@@ -1022,10 +1045,12 @@ def github_world(
     contributors=(),
     linked=None,
     extra_routes=None,
+    pushes=(),
 ):
     """
     Make GITHUB_URL clone *repo* (git URL rewriting in an isolated config) and
-    install a fake gh that serves these pull requests, user profiles ({login:
+    install a fake gh that serves these pull requests, activity entries of the
+    main branch (see push), user profiles ({login:
     {"name", "email"}}), contributor logins, commit links ({sha: login or
     None}) and any extra fake gh routes (e.g. errors). Returns the function
     listing the gh calls made.
@@ -1035,6 +1060,12 @@ def github_world(
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
     routes = {
         f"graphql:{SLUG}": {"graphql_pages": [list(prs)]},
+        f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/main": {
+            "body": list(pushes)
+        },
+        # branches that tests pass to -b have no activity
+        f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/dev": {"body": []},
+        f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/nope": {"body": []},
         f"repos/{SLUG}/contributors?per_page=100": {
             "body": [{"login": login} for login in contributors]
         },
@@ -1390,13 +1421,13 @@ class TestGitHub:
     ):
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "alice-gh")
         assert out.splitlines()[1].endswith(
-            ",alice-gh,3,1,1,1,alice@example.com; asmith@example.com,"
+            ",alice-gh,3,1,1,1,alice@example.com; asmith@example.com,,0,0"
         )
         out, _ = self.github(
             monkeypatch, capsys, tmp_path, "-u", "alice-gh", "-f", "markdown"
         )
         assert out.splitlines()[2].endswith(
-            "| alice-gh | 3 | 1 | 1 | 1 | alice@example.com; asmith@example.com |  |"
+            "| alice-gh | 3 | 1 | 1 | 1 | alice@example.com; asmith@example.com |  | 0 | 0 |"
         )
 
     @pytest.mark.parametrize(
@@ -1448,17 +1479,20 @@ class TestGitHub:
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "Bob")
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,"
-            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged,git_email,github_email\n"
-            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0,0,bob@example.com,\n"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged,git_email,github_email,"
+            "pushes_to_default,web_commits\n"
+            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0,0,bob@example.com,,0,0\n"
         )
         out, _ = self.github(
             monkeypatch, capsys, tmp_path, "-u", "Bob", "-f", "markdown"
         )
         header, _, row = out.splitlines()
         assert header.endswith(
-            "| merges | github_username | prs_opened | prs_merged | prs_closed_unmerged | prs_self_merged | git_email | github_email |"
+            "| merges | github_username | prs_opened | prs_merged | prs_closed_unmerged | prs_self_merged | git_email | github_email | pushes_to_default | web_commits |"
         )
-        assert row.endswith("| 0 | bobby | 0 | 1 | 0 | 0 | bob@example.com |  |")
+        assert row.endswith(
+            "| 0 | bobby | 0 | 1 | 0 | 0 | bob@example.com |  | 0 | 0 |"
+        )
 
     def test_empty_csv_still_has_the_github_columns(
         self, team, tmp_path, monkeypatch, capsys
@@ -1466,7 +1500,8 @@ class TestGitHub:
         out, _ = self.github(monkeypatch, capsys, tmp_path, "-u", "nobody")
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,"
-            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged,git_email,github_email\n"
+            "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged,git_email,github_email,"
+            "pushes_to_default,web_commits\n"
         )
 
     # --- email columns (STAT-13)
@@ -1624,7 +1659,7 @@ class TestGitHub:
         )
         out, _ = self.github(monkeypatch, capsys, tmp_path)
         table = list(csv.DictReader(io.StringIO(out)))
-        assert list(table[0])[-7:] == GITHUB_COLUMNS + EMAIL_COLUMNS
+        assert list(table[0])[-9:] == GITHUB_COLUMNS + EMAIL_COLUMNS + ACTIVITY_COLUMNS
         assert table[0]["git_email"].split("; ") == [
             "111+adal99@users.noreply.github.com",
             "a.old@x.example",
@@ -1677,15 +1712,16 @@ class TestGitHub:
         row = json.loads(out)[0]
         assert (row["username"], row["commits"], row["insertions"]) == ("Alice", 1, 3)
         assert [row[c] for c in GITHUB_COLUMNS] == [None] * 5
+        assert [row[c] for c in ACTIVITY_COLUMNS] == [None, None]
         assert [c for c in calls() if c[0] == "api"] == []
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv)
         assert (
             out.splitlines()[1]
-            == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,,,alice@example.com,"
+            == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,,,alice@example.com,,,"
         )
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-f", "markdown")
         assert out.splitlines()[2].endswith(
-            "| 0 |  |  |  |  |  | alice@example.com |  |"
+            "| 0 |  |  |  |  |  | alice@example.com |  |  |  |"
         )
 
     def test_github_failure_for_one_repository_does_not_stop_the_next(
@@ -1716,7 +1752,9 @@ class TestGitHub:
             ("Alice", "widgets", 1),
             ("Bob", "other", 1),
         ]
-        assert all(r[c] is None for r in data for c in GITHUB_COLUMNS)
+        assert all(
+            r[c] is None for r in data for c in GITHUB_COLUMNS + ACTIVITY_COLUMNS
+        )
         # STAT-13: git_email is still filled in, github_email is unavailable
         assert [(r["git_email"], r["github_email"]) for r in data] == [
             ("alice@example.com", None),
@@ -1741,6 +1779,384 @@ class TestGitHub:
             monkeypatch, capsys, tmp_path, *base, "-u", "old@example.com"
         )
         assert [r["username"] for r in json.loads(out)] == ["Old"]
+
+    # --- pushes and website commits (STAT-14, STAT-15)
+
+    def rows_by_name(self, out):
+        return {r["username"] or r["github_username"]: r for r in json.loads(out)}
+
+    def test_pushes_count_only_pushes_and_force_pushes_in_range(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("adal99", "work", email="ada@example.com")
+        activity = [
+            push("adal99", at(2024, 3, 1)),
+            push("ADAL99", at(2024, 3, 2), kind="force_push"),  # case-insensitive
+            push("adal99", at(2024, 3, 3), kind="branch_creation"),
+            push("adal99", at(2024, 3, 4), kind="pr_merge"),
+            push("adal99", at(2024, 3, 5), kind="merge_queue_merge"),
+            push("adal99", at(2024, 3, 6), kind="branch_deletion"),
+            push("adal99", at(2024, 1, 1, 0, 0, 0)),  # first second of the range
+            push("adal99", at(2024, 12, 31, 23, 59, 59)),  # last second
+            push("adal99", at(2023, 12, 31, 23, 59, 59)),  # just before
+            push("adal99", at(2025, 1, 1, 0, 0, 0)),  # just after
+            push("zed", at(2024, 6, 1)),  # no commits, no pull requests
+            push(None, at(2024, 6, 2)),  # a deleted account
+        ]
+        calls = github_world(
+            tmp_path, monkeypatch, widgets, pushes=activity, contributors=["adal99"]
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        rows = self.rows_by_name(out)
+        assert err == ""
+        assert rows["adal99"]["pushes_to_default"] == 4
+        assert rows["zed"]["pushes_to_default"] == 1
+        assert rows["zed"]["commits"] == 0 and rows["zed"]["username"] == ""
+        assert rows["ghost"]["pushes_to_default"] == 1
+        assert [r["pushes_to_default"] for r in json.loads(out)] == [4, 1, 1]
+        # one paginated request for the analyzed branch's activity
+        assert [
+            "api",
+            f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/main",
+            "--paginate",
+        ] in calls()
+
+    def test_pushes_are_credited_to_the_combined_row(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("ada", "one", email="111+adal99@users.noreply.github.com")
+        widgets.write("b.txt", lines(1))
+        widgets.commit(
+            "Ada Lovelace", "two", email="111+adal99@users.noreply.github.com"
+        )
+        widgets.write("c.txt", lines(1))
+        widgets.commit("Bob", "three", email="bob@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[pr("adal99", at(2024, 3, 5))],
+            contributors=["adal99"],
+            pushes=[push("adal99", at(2024, 3, 1)), push("adal99", at(2024, 3, 2))],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        data = json.loads(out)
+        assert [(r["username"], r["pushes_to_default"]) for r in data] == [
+            ("Ada Lovelace", 2),
+            ("Bob", 0),
+        ]
+        assert data[0]["prs_opened"] == 1
+
+    def test_pushes_use_the_branch_that_is_analyzed(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        widgets.git("branch", "dev")
+        calls = github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            pushes=[push("alice-gh", at(2024, 3, 1))],
+            extra_routes={
+                f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/dev": {
+                    "body": [push("dev-user", at(2024, 3, 1), ref="refs/heads/dev")] * 3
+                }
+            },
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-b", "dev")
+        rows = self.rows_by_name(out)
+        assert rows["dev-user"]["pushes_to_default"] == 3
+        assert "alice-gh" not in rows
+        refs = [c[1] for c in calls() if "/activity" in c[1]]
+        assert refs == [f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/dev"]
+
+    def test_pushes_to_a_detached_head_are_zero_and_not_requested(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        widgets.git("tag", "v1")
+        calls = github_world(
+            tmp_path, monkeypatch, widgets, pushes=[push("alice-gh", at(2024, 3, 1))]
+        )
+        out, err = self.github(
+            monkeypatch, capsys, tmp_path, "-f", "json", "-b", "v1", "-v"
+        )
+        assert [(r["username"], r["pushes_to_default"]) for r in json.loads(out)] == [
+            ("Alice", 0)
+        ]
+        assert not [c for c in calls() if "/activity" in c[1]]
+        # the skipped activity request is not counted as an API call
+        api_calls = [c for c in calls() if c[0] == "api"]
+        assert f"GitHub API calls: {len(api_calls)}" in err
+
+    def test_unreadable_activity_makes_both_new_columns_empty(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Alice", "work", email="alice@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            extra_routes={
+                f"repos/{SLUG}/activity?per_page=100&ref=refs/heads/main": {
+                    "error": "gh: Resource not accessible (HTTP 403)\n"
+                }
+            },
+        )
+        out, err = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        row = json.loads(out)[0]
+        assert (row["pushes_to_default"], row["web_commits"]) == (None, None)
+        assert row["commits"] == 1 and row["prs_opened"] is None
+        assert f"no GitHub statistics for {GITHUB_URL}" in err and "403" in err
+
+    def web(self, widgets, author, name, email, when="2024-03-10 12:00:00", **kw):
+        """Commit a new file as *author*, created by GitHub's website."""
+        widgets.write(name, lines(2))
+        widgets.commit(
+            author,
+            f"Update {name}",
+            date=when,
+            email=email,
+            committer=("GitHub", "noreply@github.com"),
+            **kw,
+        )
+
+    def test_website_commits_count_commits_github_created(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        self.web(widgets, "Alice", "b.txt", "alice@example.com")
+        self.web(widgets, "Alice", "c.txt", "alice@example.com")
+        widgets.write("d.txt", lines(2))
+        widgets.commit(
+            "Bob",
+            "local",
+            email="bob@example.com",
+            committer=("Bob", "bob@example.com"),
+        )
+        self.web(widgets, "Bob", "e.txt", "bob@example.com")
+        github_world(tmp_path, monkeypatch, widgets)
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        rows = self.rows_by_name(out)
+        assert (rows["Alice"]["commits"], rows["Alice"]["web_commits"]) == (3, 2)
+        assert (rows["Bob"]["commits"], rows["Bob"]["web_commits"]) == (2, 1)
+        assert all(r["web_commits"] <= r["commits"] for r in rows.values())
+
+    def test_a_pull_request_merge_result_is_not_a_website_commit(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        # squash merge of a pull request: GitHub commits it at the merge time
+        self.web(widgets, "Alice", "s.txt", "alice@example.com", "2024-03-12 09:30:00")
+        # a rebase merge of two commits, both committed at the merge time
+        self.web(widgets, "Alice", "r1.txt", "alice@example.com", "2024-03-14 10:00:01")
+        self.web(widgets, "Alice", "r2.txt", "alice@example.com", "2024-03-14 10:00:01")
+        # a real website edit
+        self.web(widgets, "Alice", "w.txt", "alice@example.com", "2024-03-16 11:00:00")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr("alice-gh", at(2024, 3, 11), merged=at(2024, 3, 12, 9, 30, 0)),
+                pr("alice-gh", at(2024, 3, 13), merged=at(2024, 3, 14, 10, 0, 0)),
+            ],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        alice = self.rows_by_name(out)["Alice"]
+        assert (alice["commits"], alice["web_commits"]) == (5, 1)
+
+    def test_merge_commit_is_found_by_hash_even_when_merged_later(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        # GitHub committed the squash 12 seconds before it stamped the merge
+        self.web(widgets, "Alice", "s.txt", "alice@example.com", "2024-03-12 09:30:00")
+        squash = head(widgets)
+        # a rebase merge: last commit is the merge commit, the other is 1 s apart
+        self.web(widgets, "Alice", "r1.txt", "alice@example.com", "2024-03-14 10:00:00")
+        self.web(widgets, "Alice", "r2.txt", "alice@example.com", "2024-03-14 10:00:01")
+        rebase = head(widgets)
+        self.web(widgets, "Alice", "w.txt", "alice@example.com", "2024-03-16 11:00:00")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr(
+                    "alice-gh",
+                    at(2024, 3, 11),
+                    merged=at(2024, 3, 12, 9, 30, 12),
+                    commit=(squash, at(2024, 3, 12, 9, 30, 0)),
+                ),
+                pr(
+                    "alice-gh",
+                    at(2024, 3, 13),
+                    merged=at(2024, 3, 14, 10, 0, 9),
+                    commit=(rebase, at(2024, 3, 14, 10, 0, 1)),
+                ),
+            ],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        alice = self.rows_by_name(out)["Alice"]
+        assert (alice["commits"], alice["web_commits"]) == (5, 1)
+
+    def test_old_head_commit_named_as_merge_commit_is_still_a_website_commit(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        # a website edit that reached main directly; a pull request holding
+        # it was merged 16 hours later, and GitHub names the edit as its
+        # merge commit although the merge created nothing
+        self.web(widgets, "Alice", "w.txt", "alice@example.com", "2024-03-12 09:30:00")
+        edit = head(widgets)
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr(
+                    "alice-gh",
+                    at(2024, 3, 11),
+                    merged=at(2024, 3, 13, 1, 30, 0),
+                    commit=(edit, at(2024, 3, 12, 9, 30, 0)),
+                )
+            ],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        assert self.rows_by_name(out)["Alice"]["web_commits"] == 1
+
+    def test_merge_time_tolerance(self, widgets, tmp_path, monkeypatch, capsys):
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        self.web(widgets, "Alice", "t2.txt", "alice@example.com", "2024-03-12 09:30:02")
+        self.web(widgets, "Alice", "t3.txt", "alice@example.com", "2024-03-14 10:00:03")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr("alice-gh", at(2024, 3, 11), merged=at(2024, 3, 12, 9, 30, 0)),
+                pr("alice-gh", at(2024, 3, 13), merged=at(2024, 3, 14, 10, 0, 0)),
+                pr("alice-gh", at(2024, 3, 15)),  # never merged
+            ],
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        # 2 seconds after a merge is that merge's result; 3 seconds is an edit
+        assert self.rows_by_name(out)["Alice"]["web_commits"] == 1
+
+    def test_merge_commits_exclusions_and_range_limit_website_commits(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        # outside the date range; first, as git stops reading at a too-old commit
+        self.web(
+            widgets, "Alice", "old.txt", "alice@example.com", "2023-06-01 12:00:00"
+        )
+        widgets.write("a.txt", lines(2))
+        widgets.commit("Alice", "local", email="alice@example.com")
+        widgets.branch("f")
+        self.web(widgets, "Bob", "f.txt", "bob@example.com", "2024-03-11 12:00:00")
+        widgets.switch("main")
+        # GitHub's merge commit is not a commit, so it is not a website commit
+        widgets.merge(
+            "Alice",
+            "f",
+            message="Merge pull request #1 from acme/f",
+            date="2024-03-12 12:00:00",
+            email="alice@example.com",
+            committer=("GitHub", "noreply@github.com"),
+        )
+        # only an excluded file changed
+        widgets.write("data.json", "{}\n")
+        widgets.commit(
+            "Alice",
+            "edit data",
+            date="2024-03-13 12:00:00",
+            email="alice@example.com",
+            committer=("GitHub", "NoReply@GitHub.com"),
+        )
+        # case of the committer address does not matter
+        self.web(widgets, "Alice", "g.txt", "alice@example.com", "2024-03-14 12:00:00")
+        widgets.write("h.txt", lines(1))
+        widgets.commit(
+            "Alice",
+            "upper case",
+            date="2024-03-15 12:00:00",
+            email="alice@example.com",
+            committer=("GitHub", "NOREPLY@GITHUB.COM"),
+        )
+        github_world(tmp_path, monkeypatch, widgets)
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        rows = self.rows_by_name(out)
+        assert (rows["Alice"]["commits"], rows["Alice"]["web_commits"]) == (3, 2)
+        assert (rows["Alice"]["merges"], rows["Bob"]["web_commits"]) == (1, 1)
+
+    def test_website_commits_are_summed_over_combined_identities(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        email = "111+adal99@users.noreply.github.com"
+        widgets.write("a.txt", lines(2))
+        widgets.commit("ada", "local", email="ada@laptop.example")
+        self.web(widgets, "ada", "b.txt", email)
+        self.web(widgets, "Ada Lovelace", "c.txt", email)
+        self.web(widgets, "Ada Lovelace", "d.txt", email)
+        github_world(
+            tmp_path, monkeypatch, widgets, contributors=["adal99"],
+            linked={head(widgets): "adal99"},
+        )  # fmt: skip
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        data = json.loads(out)
+        assert len(data) == 1
+        assert (data[0]["username"], data[0]["github_username"]) == (
+            "Ada Lovelace",
+            "adal99",
+        )
+        assert (data[0]["commits"], data[0]["web_commits"]) == (4, 3)
+
+    def test_a_commit_github_made_when_it_created_the_repository_counts(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        # a root commit made through the website was still made on the website
+        self.web(widgets, "Alice", "README.md", "alice@example.com")
+        github_world(tmp_path, monkeypatch, widgets)
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json")
+        assert self.rows_by_name(out)["Alice"]["web_commits"] == 1
+
+    def test_activity_columns_count_as_activity_for_clean(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        widgets.write("a.txt", lines(1))
+        widgets.commit("Old", "work", date="2020-01-01 12:00:00", email="old@x.example")
+        github_world(
+            tmp_path, monkeypatch, widgets, pushes=[push("zed", at(2024, 6, 1))]
+        )
+        out, _ = self.github(monkeypatch, capsys, tmp_path, "-f", "json", "-c")
+        assert [
+            (r["github_username"], r["pushes_to_default"]) for r in json.loads(out)
+        ] == [("zed", 1)]
+
+    def test_without_github_there_are_no_activity_columns(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        self.web(widgets, "Alice", "a.txt", "alice@example.com")
+        calls = github_world(tmp_path, monkeypatch, widgets)
+        out, _ = run_github(
+            monkeypatch, capsys, tmp_path, "-r", GITHUB_URL, *DATES, "-f", "json"
+        )
+        assert list(json.loads(out)[0]) == [
+            "username", "repository", "start_date", "end_date", "commits",
+            "insertions", "deletions", "files", "merges",
+        ]  # fmt: skip
+        assert calls() == []
 
     # --- gh missing or signed out
 

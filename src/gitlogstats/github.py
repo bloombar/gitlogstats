@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.parse
 
 # CLI-3: the extra output columns
 GITHUB_FIELDNAMES = [
@@ -23,6 +24,25 @@ GITHUB_FIELDNAMES = [
 
 # STAT-13: the email columns that follow the pull-request columns
 EMAIL_FIELDNAMES = ["git_email", "github_email"]
+
+# STAT-14, STAT-15: the activity columns that follow the email columns
+ACTIVITY_FIELDNAMES = ["pushes_to_default", "web_commits"]
+
+# STAT-14: the activity types that are a person pushing to a branch
+PUSH_TYPES = ("push", "force_push")
+
+# STAT-15: the committer GitHub records for commits it creates itself
+GITHUB_COMMITTER_EMAIL = "noreply@github.com"
+
+# STAT-15: how many seconds a commit's committer time may differ from a pull
+# request's merge commit and still be part of that pull request's merge
+MERGE_TIME_TOLERANCE = 2
+
+# STAT-15: GitHub commits a merge result seconds before it stamps the pull
+# request merged; a "merge commit" much older than the merge is the pull
+# request's own head commit, which reached the branch another way, so that
+# merge created no commit
+MERGE_COMMIT_LAG = 60
 
 # CLI-3: the two user-facing messages, verbatim from the SPEC
 GH_NOT_INSTALLED = (
@@ -43,7 +63,8 @@ PULLS_QUERY = (
     "pullRequests(first:100,after:$endCursor){"
     "pageInfo{hasNextPage endCursor} "
     "nodes{author{login __typename} mergedBy{login __typename} "
-    "state createdAt mergedAt closedAt baseRefName}}}}"
+    "state createdAt mergedAt closedAt baseRefName "
+    "mergeCommit{oid committedDate}}}}}"
 )
 
 # Login given to pull requests whose author's account was deleted
@@ -217,7 +238,9 @@ def fetch_pull_requests(repo):
     @param repo: "owner/repo"
     @returns: a list of dicts with login, user_type, state ("open" or
         "closed"), created_at, merged_at, closed_at, base (the base branch
-        name) and merged_by (a login, or None if not merged or unknown)
+        name), merged_by (a login, or None if not merged or unknown),
+        merge_commit (the hash of the commit that merged it, or None) and
+        merge_committed_at (that commit's committer time, or None)
     @raises GitHubError: if the request fails
     """
     owner, name = repo.split("/", 1)
@@ -229,6 +252,7 @@ def fetch_pull_requests(repo):
             raise GitHubError(f"could not read pull requests of {repo}")
         for pull in repository["pullRequests"]["nodes"]:
             author = pull.get("author")
+            merge_commit = pull.get("mergeCommit") or {}
             result.append(
                 {
                     "login": _graphql_login(author) or GHOST_LOGIN,
@@ -239,6 +263,8 @@ def fetch_pull_requests(repo):
                     "closed_at": pull.get("closedAt"),
                     "base": pull.get("baseRefName"),
                     "merged_by": _graphql_login(pull.get("mergedBy")),
+                    "merge_commit": merge_commit.get("oid"),
+                    "merge_committed_at": merge_commit.get("committedDate"),
                 }
             )
     return result
@@ -256,6 +282,26 @@ def _local_time(timestamp):
     return datetime.datetime.fromtimestamp(calendar.timegm(utc.timetuple()))
 
 
+def _range_test(start, end):
+    """
+    Build a test for whether a GitHub timestamp falls in the date range. The
+    range is inclusive local time, as in FILT-1.
+    @param start: first day, mm/dd/yyyy
+    @param end: last day, mm/dd/yyyy
+    @returns: a function taking a timestamp (or None) and returning a bool
+    """
+    since = datetime.datetime.strptime(start, "%m/%d/%Y")
+    until = datetime.datetime.strptime(end, "%m/%d/%Y").replace(
+        hour=23, minute=59, second=59
+    )
+
+    def in_range(timestamp):
+        moment = _local_time(timestamp)
+        return moment is not None and since <= moment <= until
+
+    return in_range
+
+
 def count_pull_requests(prs, start, end, branch=None):
     """
     STAT-8, STAT-9, STAT-10, STAT-12: count each user's pull requests in a date range.
@@ -267,14 +313,7 @@ def count_pull_requests(prs, start, end, branch=None):
     @returns: {login: {"prs_opened", "prs_merged", "prs_closed_unmerged",
         "prs_self_merged"}}
     """
-    since = datetime.datetime.strptime(start, "%m/%d/%Y")
-    until = datetime.datetime.strptime(end, "%m/%d/%Y").replace(
-        hour=23, minute=59, second=59
-    )
-
-    def in_range(timestamp):
-        moment = _local_time(timestamp)
-        return moment is not None and since <= moment <= until
+    in_range = _range_test(start, end)
 
     counts = {}
     for pr in prs:
@@ -303,6 +342,89 @@ def count_pull_requests(prs, start, end, branch=None):
             and in_range(pr["closed_at"])
         ):
             row["prs_closed_unmerged"] += 1
+    return counts
+
+
+def fetch_pushes(repo, branch):
+    """
+    STAT-14: list the pushes to one branch from GitHub's activity record.
+    @param repo: "owner/repo"
+    @param branch: the branch name, e.g. "main"
+    @returns: a list of {"login", "timestamp"}, one per push or force push;
+        the login of a deleted account is GHOST_LOGIN
+    @raises GitHubError: if the request fails
+    """
+    ref = urllib.parse.quote(f"refs/heads/{branch}", safe="/")
+    activity = gh_api(f"repos/{repo}/activity?per_page=100&ref={ref}", paginate=True)
+    return [
+        {
+            "login": (item.get("actor") or {}).get("login") or GHOST_LOGIN,
+            "timestamp": item.get("timestamp"),
+        }
+        for item in activity
+        if item.get("activity_type") in PUSH_TYPES
+    ]
+
+
+def count_pushes(pushes, start, end):
+    """
+    STAT-14: count each user's pushes in a date range (inclusive local time).
+    @param pushes: the list from fetch_pushes
+    @param start: first day, mm/dd/yyyy
+    @param end: last day, mm/dd/yyyy
+    @returns: {login: number of pushes}
+    """
+    in_range = _range_test(start, end)
+    counts = {}
+    for push in pushes:
+        if in_range(push["timestamp"]):
+            counts[push["login"]] = counts.get(push["login"], 0) + 1
+    return counts
+
+
+def _utc_seconds(timestamp):
+    """Convert a GitHub UTC timestamp to seconds since the epoch."""
+    utc = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+    return calendar.timegm(utc.timetuple())
+
+
+def count_web_commits(commits, prs):
+    """
+    STAT-15: count each author's commits that GitHub created itself, other
+    than the result of merging a pull request. A merge result is the commit
+    GitHub names as a pull request's merge commit, or one committed at the
+    same moment (within MERGE_TIME_TOLERANCE seconds) as that commit, which
+    covers the other commits of a rebase merge. GitHub commits the merge
+    result a few seconds before it stamps the pull request merged, so a pull
+    request without a merge commit is compared by its merge time instead.
+    @param commits: dicts with "hash", "name" (author), "committer_email" and
+        "committed" (committer time, seconds since the epoch), for the
+        commits counted in STAT-1
+    @param prs: the list from fetch_pull_requests
+    @returns: {author name: number of website commits}
+    """
+    merge_hashes = set()
+    merge_times = []
+    for pr in prs:
+        if not pr["merged_at"]:
+            continue
+        merged = _utc_seconds(pr["merged_at"])
+        committed = _utc_seconds(pr.get("merge_committed_at") or pr["merged_at"])
+        if abs(merged - committed) > MERGE_COMMIT_LAG:
+            continue  # the pull request's own head commit, made earlier
+        if pr.get("merge_commit"):
+            merge_hashes.add(pr["merge_commit"])
+        merge_times.append(committed)
+    counts = {}
+    for commit in commits:
+        if commit["committer_email"].strip().casefold() != GITHUB_COMMITTER_EMAIL:
+            continue
+        if commit["hash"] in merge_hashes or any(
+            abs(commit["committed"] - merged) <= MERGE_TIME_TOLERANCE
+            for merged in merge_times
+        ):
+            continue
+        counts[commit["name"]] = counts.get(commit["name"], 0) + 1
     return counts
 
 

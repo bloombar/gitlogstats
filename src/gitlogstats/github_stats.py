@@ -11,19 +11,23 @@ import sys
 from .git_logs_parser import FIELDNAMES, GitLogsParser
 from .github import (
     GHOST_LOGIN,
+    ACTIVITY_FIELDNAMES,
     GITHUB_FIELDNAMES,
     GitHubError,
     commit_login,
     contributor_logins,
     count_pull_requests,
+    count_pushes,
+    count_web_commits,
     fetch_pull_requests,
+    fetch_pushes,
     github_repo_from_url,
     user_profile,
 )
 from .identity import consolidate, match_identities, unavailable_row
 
 # the columns that show activity; a row with all of these zero or empty is idle
-ACTIVITY_FIELDS = FIELDNAMES[4:] + GITHUB_FIELDNAMES[1:]
+ACTIVITY_FIELDS = FIELDNAMES[4:] + GITHUB_FIELDNAMES[1:] + ACTIVITY_FIELDNAMES
 
 
 def warn(repo_url, reason):
@@ -39,8 +43,8 @@ def warn(repo_url, reason):
 
 def combine(parser, rows, identities, github_repo, args):
     """
-    STAT-8 to STAT-11: fetch the repository's pull requests, match GitHub users
-    to git authors and merge their rows.
+    STAT-8 to STAT-11, STAT-14, STAT-15: fetch the repository's pull requests
+    and pushes, match GitHub users to git authors and merge their rows.
     @param parser: the GitLogsParser of the repository (for verbose output)
     @param rows: git rows from parser.parse(), unfiltered
     @param identities: {author_name: {email: commit hash}} from get_identities
@@ -49,9 +53,27 @@ def combine(parser, rows, identities, github_repo, args):
     @returns: (combined rows, {author_name: (login, tier)})
     @raises GitHubError: if GitHub cannot be read for this repository
     """
-    api_calls = 2  # the pull request list and the contributor list
+    api_calls = 3  # the pull request, contributor and activity lists
     prs = fetch_pull_requests(github_repo)
     pr_counts = count_pull_requests(prs, args.start, args.end, args.branch)
+
+    # STAT-14: pushes to the branch that was actually analyzed; a detached
+    # HEAD is no branch, so nothing was pushed to it
+    branch = parser.current_branch()
+    if branch is None:
+        api_calls -= 1
+        pushes = {}
+    else:
+        pushes = count_pushes(fetch_pushes(github_repo, branch), args.start, args.end)
+    known = {login.casefold(): login for login in pr_counts}
+    for login, number in pushes.items():
+        key = known.setdefault(login.casefold(), login)
+        found = pr_counts.setdefault(key, {})
+        found["pushes_to_default"] = found.get("pushes_to_default", 0) + number
+
+    # STAT-15: commits GitHub created itself, apart from pull request merges
+    web_commits = count_web_commits(parser.committed_commits(), prs)
+    rows = [dict(row, web_commits=web_commits.get(row["username"], 0)) for row in rows]
 
     logins = {pr["login"] for pr in prs} | contributor_logins(github_repo)
     candidates = {}
