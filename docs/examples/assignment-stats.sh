@@ -9,10 +9,11 @@
 #
 # Example:
 #   ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > stats.csv
-#   ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 --github -f markdown
+#   ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 -f markdown
 #
-# Dates are mm/dd/yyyy and both days are included. Any options after the four
-# arguments are passed to gitlogstats unchanged (e.g. --github, -f json, -c).
+# Dates are mm/dd/yyyy and both days are included. gitlogstats always runs
+# with --github, so the GitHub columns are included. Any options after the four
+# arguments are passed to gitlogstats unchanged (e.g. -f json, -c).
 # The results go to standard output; progress messages go to standard error.
 #
 # Requires: Python 3, git, and the GitHub CLI (gh), signed in with
@@ -109,5 +110,8 @@ if [ "$count" -eq 0 ]; then
 fi
 echo "Analyzing $count repositories from $START_DATE to $END_DATE..." >&2
 
-# --clobber deletes the clones once the results are printed
-"$VENV_PYTHON" -m gitlogstats -rf "$REPOS_FILE" -s "$START_DATE" -e "$END_DATE" --clobber "$@"
+# --github adds the GitHub columns (pull requests, pushes, website commits,
+# emails) and combines each student's git names into one row; --clobber
+# deletes the clones once the results are printed
+"$VENV_PYTHON" -m gitlogstats -rf "$REPOS_FILE" -s "$START_DATE" -e "$END_DATE" \
+  --github --clobber "$@"

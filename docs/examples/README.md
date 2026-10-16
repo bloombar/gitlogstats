@@ -24,7 +24,7 @@ You don't need to install `gitlogstats` yourself: the script installs or upgrade
 | `REPO_PREFIX`       | The start of the repository names for this assignment                  | `web-app-exercise-`          |
 | `START_DATE`        | First day of the period, `mm/dd/yyyy`                                  | `09/01/2029`                 |
 | `END_DATE`          | Last day of the period, `mm/dd/yyyy` (included)                        | `10/16/2029`                 |
-| options             | Anything after the four arguments is passed to `gitlogstats` unchanged | `--github -f markdown`       |
+| options             | Anything after the four arguments is passed to `gitlogstats` unchanged | `-f markdown`                |
 
 Run it from any directory. The results are printed to standard output, so redirect them to save them; progress messages go to standard error and stay on screen.
 
@@ -36,10 +36,10 @@ Save a CSV of one assignment's statistics:
 ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > web-app-exercise.csv
 ```
 
-Include the GitHub columns (pull requests, pushes, website commits, emails) and print a Markdown table:
+Print a Markdown table instead:
 
 ```bash
-./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 --github -f markdown
+./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 -f markdown
 ```
 
 Leave out students with no activity in the period, as JSON:
@@ -57,7 +57,7 @@ See the main [README](../../README.md) for every `gitlogstats` option and what e
 1. Checks the arguments and that Python, git and `gh` are installed and `gh` is signed in. If anything is missing it stops with a message saying what.
 2. Installs or upgrades `gitlogstats` in a Python environment of its own, `~/.gitlogstats-venv`, reused by later runs. Set `GITLOGSTATS_VENV` to keep it elsewhere. A separate environment is needed because Homebrew Python and recent Debian and Ubuntu releases refuse a system-wide `pip install`.
 3. Lists the organization's repositories whose names start with `REPO_PREFIX`, into a temporary file that is deleted when the script ends, even after an error. An existing `repos.txt` in your directory is never touched. If no repository matches, it stops with an error.
-4. Runs `gitlogstats` on those repositories with `--clobber`, so the clones it makes in `./repos/` are deleted once the results are printed.
+4. Runs `gitlogstats` on those repositories with `--github` and `--clobber`. `--github` adds the GitHub columns (pull requests, pushes, website commits and emails) and combines each student's git names into one row; `--clobber` deletes the clones it makes in `./repos/` once the results are printed.
 
 ### Troubleshooting
 
