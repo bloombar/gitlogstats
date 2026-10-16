@@ -194,6 +194,7 @@
     directory, in a folder named the way git clone names it (the last path
     segment, minus a trailing .git; dots in the name are kept). On later runs
     the existing clone is updated with git pull instead of being cloned again.
+    --clobber removes the clones after the run (REPO-5).
   section: §1 Repository Selection
   family: REPO
   phase: 1
@@ -205,6 +206,22 @@
     when an earlier run left the cached clone on another branch. With --github,
     it also limits which pull requests are counted to those whose base branch is
     that branch (CLI-3).
+  section: §1 Repository Selection
+  family: REPO
+  phase: 1
+  status: Done
+- id: REPO-5
+  title: Remove clones after the run
+  full: --clobber deletes the clones this run used from the repos/ directory
+    (REPO-3) once the results have been printed, and then removes repos/ itself
+    if nothing else is left in it. Clones in repos/ that this run did not use
+    are kept. It is off by default, so clones are kept and reused by later runs.
+    If the run fails before the results are printed, nothing is deleted, so the
+    clones can be inspected. Only directories inside repos/ are deleted; a
+    symbolic link in place of a clone is removed without following it. If repos/
+    is itself a symbolic link to another directory, the clones are deleted from
+    that directory and the link is kept. A clone that cannot be fully deleted
+    (e.g. it contains a folder…
   section: §1 Repository Selection
   family: REPO
   phase: 1

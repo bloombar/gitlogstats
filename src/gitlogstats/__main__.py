@@ -5,6 +5,7 @@ import datetime
 import re
 import sys
 from . import GitLogsParser
+from .clones import remove_clones
 from .git_logs_parser import FIELDNAMES
 from .github import (
     ACTIVITY_FIELDNAMES,
@@ -155,6 +156,14 @@ def main():
         default=False,
         action="store_true",
     )
+    parser.add_argument(
+        "--clobber",
+        help="Delete the repository clones this run used from the repos/ "
+        "directory after printing the results (default: keep them for faster "
+        "later runs)",
+        default=False,
+        action="store_true",
+    )
     args = parser.parse_args()
 
     if datetime.datetime.strptime(args.start, "%m/%d/%Y") > datetime.datetime.strptime(
@@ -179,6 +188,7 @@ def main():
         with open(args.repofile, "r", encoding="utf8") as f:
             repository_urls = GitLogsParser.read_repository_urls(f.read())
 
+    start_dir = os.getcwd()  # REPO-5: where the command was started from
     # navigate into the directory where repos will be stored
     repos_dir = os.path.join(
         os.getcwd(), "repos"
@@ -190,6 +200,7 @@ def main():
     # loop through each git repository url, accumulating all results
     all_results = []
     last_parser = None
+    used_clones = []  # REPO-5: the clone directories this run cloned or pulled
     for repo_url in repository_urls:
         os.chdir(repos_dir)  # start from the parent directory of all repos
 
@@ -221,6 +232,8 @@ def main():
                 ["git", "pull"], capture_output=True, check=True
             )  # get the latest code from github
 
+        used_clones.append(repo_dir)
+
         # with --github, -u and -c are applied after GitHub users are combined
         last_parser = GitLogsParser(
             repo=repo_dir,
@@ -249,6 +262,13 @@ def main():
         output = last_parser.format_results(all_results, args.format, fieldnames)
         # end with exactly one newline: CSV and Markdown output already has one
         print(output, end="" if output.endswith("\n") else "\n")
+
+    # REPO-5: only now that the results are out, delete the clones. Leave the
+    # clone we were last inside first, so the deletion never depends on it.
+    if args.clobber:
+        sys.stdout.flush()
+        os.chdir(start_dir)
+        remove_clones(repos_dir, used_clones, args.verbose)
 
 
 # if this script is being run directly...
