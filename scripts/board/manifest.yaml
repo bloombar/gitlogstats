@@ -148,6 +148,22 @@
   family: OUT
   phase: 1
   status: Done
+- id: OUT-7
+  title: Results by day
+  full: -a/--aggregate day prints one row per day on which anything was counted,
+    summed over every contributor and repository analyzed, in date order. Its
+    columns are date, commits, insertions, deletions, files, merges,
+    repositories, contributors, where date is the day in mm/dd/yyyy format,
+    repositories is the number of repositories with any activity that day and
+    contributors the number of developers with any activity that day (a
+    developer is identified as in OUT-6, so one person active in several
+    repositories counts once). With --github, the columns prs_opened,
+    prs_merged, prs_closed_unmerged, prs_self_merged, pushes_to_default,
+    web_commits follow. There are no username, repository, start_date…
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Todo
 - id: PKG-1
   title: Installable package
   full: The tool installs with pip install gitlogstats, which provides a
