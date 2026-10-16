@@ -19,7 +19,8 @@ from .github import (
     count_pull_requests,
     count_pushes,
     count_web_commits,
-    event_days,
+    GITHUB_COMMITTER_EMAIL,
+    events_by_day,
     fetch_pull_requests,
     fetch_pushes,
     github_repo_from_url,
@@ -43,7 +44,7 @@ def warn(repo_url, reason):
     )
 
 
-def fetch(parser, identities, github_repo, args):
+def fetch(parser, identities, github_repo):
     """
     STAT-8 to STAT-11, STAT-14, STAT-15: fetch the repository's pull requests,
     pushes and website-commit candidates, and match GitHub users to git authors.
@@ -51,8 +52,7 @@ def fetch(parser, identities, github_repo, args):
     @param parser: the GitLogsParser of the repository (for verbose output)
     @param identities: {author_name: {email: commit hash}} from get_identities
     @param github_repo: "owner/repo"
-    @param args: the parsed command-line arguments (branch)
-    @returns: a dict with prs, pushes, commits (committed_commits), matches
+    @returns: a dict with prs, pushes (to the checked-out branch), commits (committed_commits), matches
         ({author_name: (login, tier)}) and github_emails ({login: email})
     @raises GitHubError: if GitHub cannot be read for this repository
     """
@@ -129,7 +129,7 @@ def fetch(parser, identities, github_repo, args):
     }
 
 
-def tally(parser, rows, data, identities, start, end, args, commits=None):
+def tally(parser, rows, data, identities, start, end, branch, events=None):
     """
     Count the fetched GitHub activity in a date range and merge it into the
     git rows of the same range.
@@ -139,13 +139,14 @@ def tally(parser, rows, data, identities, start, end, args, commits=None):
     @param identities: {author_name: {email: commit hash}} from get_identities
     @param start: first day, mm/dd/yyyy
     @param end: last day, mm/dd/yyyy
-    @param args: the parsed command-line arguments (branch)
-    @param commits: the website-commit candidates of the range; defaults to
-        all of data["commits"] (the whole -s/-e range)
+    @param branch: count only pull requests with this base branch, if given
+    @param events: {"prs", "pushes", "commits"} limited to the range (OUT-7);
+        defaults to everything in data (the whole -s/-e range)
     @returns: the combined rows
     """
-    pr_counts = count_pull_requests(data["prs"], start, end, args.branch)
-    pushes = count_pushes(data["pushes"], start, end)
+    events = events or data
+    pr_counts = count_pull_requests(events["prs"], start, end, branch)
+    pushes = count_pushes(events["pushes"], start, end)
     known = {login.casefold(): login for login in pr_counts}
     for login, number in pushes.items():
         key = known.setdefault(login.casefold(), login)
@@ -153,8 +154,7 @@ def tally(parser, rows, data, identities, start, end, args, commits=None):
         found["pushes_to_default"] = found.get("pushes_to_default", 0) + number
 
     # STAT-15: commits GitHub created itself, apart from pull request merges
-    commits = data["commits"] if commits is None else commits
-    web_commits = count_web_commits(commits, data["prs"])
+    web_commits = count_web_commits(events["commits"], data["prs"])
     rows = [dict(row, web_commits=web_commits.get(row["username"], 0)) for row in rows]
 
     repository = GitLogsParser.repo_name_from_url(parser.repository)
@@ -182,8 +182,8 @@ def combine(parser, rows, identities, github_repo, args):
     @returns: (combined rows, {author_name: (login, tier)})
     @raises GitHubError: if GitHub cannot be read for this repository
     """
-    data = fetch(parser, identities, github_repo, args)
-    combined = tally(parser, rows, data, identities, args.start, args.end, args)
+    data = fetch(parser, identities, github_repo)
+    combined = tally(parser, rows, data, identities, args.start, args.end, args.branch)
     return combined, data["matches"]
 
 
@@ -236,11 +236,26 @@ def github_rows(parser, rows, repo_url, identities, args):
         result, matches = combine(parser, rows, identities, github_repo, args)
     except GitHubError as exc:
         warn(repo_url, exc)
-        result = [
-            unavailable_row(row, identities.get(row["username"], ())) for row in rows
-        ]
+        result = unavailable_rows(rows, identities)
 
     return select(result, args, matches, identities)
+
+
+def unavailable_rows(rows, identities):
+    """
+    Mark the GitHub columns of git rows unavailable (CLI-3), keeping any
+    "date" (OUT-7).
+    @param rows: git rows
+    @param identities: {author_name: {email: commit hash}} from get_identities
+    @returns: new rows from unavailable_row
+    """
+    result = []
+    for row in rows:
+        out = unavailable_row(row, identities.get(row["username"], ()))
+        if "date" in row:
+            out["date"] = row["date"]
+        result.append(out)
+    return result
 
 
 def github_day_rows(parser, repo_url, identities, args):
@@ -259,22 +274,26 @@ def github_day_rows(parser, repo_url, identities, args):
     try:
         if github_repo is None:
             raise GitHubError("not a github.com repository")
-        data = fetch(parser, identities, github_repo, args)
+        data = fetch(parser, identities, github_repo)
     except GitHubError as exc:
         warn(repo_url, exc)
-        for day, rows in parser.parse_days().items():
-            for row in rows:
-                emails = identities.get(row["username"], ())
-                result.append(dict(unavailable_row(row, emails), date=day))
+        result = unavailable_rows(parser.day_rows(), identities)
     else:
         matches = data["matches"]
-        extra = event_days(data["prs"], data["pushes"], args.start, args.end)
-        web = {}
+        days = events_by_day(
+            data["prs"], data["pushes"], args.start, args.end, args.branch
+        )
+        # STAT-15: only commits GitHub committed can be website commits
+        none = {"prs": [], "pushes": [], "commits": []}
         for commit in data["commits"]:
-            web.setdefault(local_day(commit["committed"]), []).append(commit)
-        for day, rows in parser.parse_days(extra).items():
-            commits = web.get(day, [])
-            for row in tally(parser, rows, data, identities, day, day, args, commits):
+            if commit["committer_email"].strip().casefold() == GITHUB_COMMITTER_EMAIL:
+                day = local_day(commit["committed"])
+                days.setdefault(day, dict(none, commits=[]))["commits"].append(commit)
+        for day, rows in parser.parse_days(days).items():
+            events = days.get(day, none)
+            for row in tally(
+                parser, rows, data, identities, day, day, args.branch, events
+            ):
                 result.append(dict(row, date=day))
     return select(result, args, matches, identities)
 

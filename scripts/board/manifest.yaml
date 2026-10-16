@@ -157,9 +157,9 @@
     repositories is the number of repositories with any activity that day and
     contributors the number of developers with any activity that day (a
     developer is identified as in OUT-6, so one person active in several
-    repositories counts once). With --github, the columns prs_opened,
-    prs_merged, prs_closed_unmerged, prs_self_merged, pushes_to_default,
-    web_commits follow. There are no username, repository, start_date…
+    repositories counts once, while one matched to a GitHub user in one
+    repository but not in another counts twice). With --github, the columns
+    prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged…
   section: §4 Output
   family: OUT
   phase: 1
