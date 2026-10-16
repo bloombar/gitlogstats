@@ -6,7 +6,13 @@ import re
 import sys
 from . import GitLogsParser
 from .git_logs_parser import FIELDNAMES
-from .github import EMAIL_FIELDNAMES, GITHUB_FIELDNAMES, GitHubUnavailable, check_gh
+from .github import (
+    ACTIVITY_FIELDNAMES,
+    EMAIL_FIELDNAMES,
+    GITHUB_FIELDNAMES,
+    GitHubUnavailable,
+    check_gh,
+)
 from .github_stats import github_rows
 
 
@@ -142,8 +148,10 @@ def main():
     parser.add_argument(
         "--github",
         help="Also report GitHub pull requests opened, merged, closed and "
-        "self-merged per contributor, with their git and GitHub emails, and "
-        "match GitHub users to git authors. Needs the GitHub CLI (gh), signed in",
+        "self-merged per contributor, with their git and GitHub emails, their "
+        "pushes to the analyzed branch and their commits made on the GitHub "
+        "website, and match GitHub users to git authors. "
+        "Needs the GitHub CLI (gh), signed in",
         default=False,
         action="store_true",
     )
@@ -234,7 +242,9 @@ def main():
     if last_parser is not None:
         # an empty CSV table still gets the GitHub columns with --github
         fieldnames = (
-            FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES if args.github else None
+            FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES
+            if args.github
+            else None
         )
         output = last_parser.format_results(all_results, args.format, fieldnames)
         # end with exactly one newline: CSV and Markdown output already has one

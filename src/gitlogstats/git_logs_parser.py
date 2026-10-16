@@ -21,6 +21,11 @@ FILES_RE = re.compile(r"(\d+) files? changed")
 INSERTIONS_RE = re.compile(r"(\d+) insertions?\(\+\)")
 DELETIONS_RE = re.compile(r"(\d+) deletions?\(-\)")
 
+# STAT-15: the header of each commit when listing who committed it and when
+COMMITTER_LOG_FORMAT = (
+    f"--format={RECORD_SEP}%H{FIELD_SEP}%aN{FIELD_SEP}%aE{FIELD_SEP}%cE{FIELD_SEP}%ct"
+)
+
 # the fields reported for each contributor, in output order
 FIELDNAMES = [
     "username",
@@ -128,11 +133,13 @@ class GitLogsParser:
             f"--until={until:%Y-%m-%d %H:%M:%S}",
         ]
 
-    def git_log_command(self):
+    def git_log_command(self, log_format=LOG_FORMAT, shortstat=True):
         """
         Build the git log command that lists every non-merge commit in the date
         range with its author and a one-line summary of its changes. Merge
         commits come from merge_log_command instead.
+        @param log_format: the --format argument
+        @param shortstat: whether to add the summary of changes
         @returns: the command as a list of arguments, ready for subprocess
         """
         # --full-history stops git from hiding commits while simplifying the
@@ -142,8 +149,8 @@ class GitLogsParser:
             "log",
             "--full-history",
             "--no-merges",
-            "--shortstat",
-            LOG_FORMAT,
+            *(["--shortstat"] if shortstat else []),
+            log_format,
             *self.date_range_args(),
             "--",
             ".",
@@ -184,6 +191,44 @@ class GitLogsParser:
             LOG_FORMAT,
             *self.date_range_args(),
         ]
+
+    def current_branch(self):
+        """
+        Name the branch checked out in the repository.
+        @returns: the branch name, or None if HEAD is detached
+        """
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "-q", "HEAD"], capture_output=True
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.decode("utf-8", errors="replace").strip()
+
+    def committed_commits(self):
+        """
+        STAT-15: list the commits counted in `commits` (STAT-1: the same date
+        range, exclusions and branch, merges left out) with their committers.
+        @returns: a list of dicts with hash, name (author), email (author),
+            committer_email and committed (committer time, epoch seconds)
+        """
+        cmd = self.git_log_command(COMMITTER_LOG_FORMAT, shortstat=False)
+        self.verboseprint(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        commits = []
+        for record in result.stdout.decode("utf-8", errors="replace").split(RECORD_SEP)[
+            1:
+        ]:
+            fields = record.strip("\n").split(FIELD_SEP)
+            commits.append(
+                {
+                    "hash": fields[0],
+                    "name": fields[1],
+                    "email": fields[2],
+                    "committer_email": fields[3],
+                    "committed": int(fields[4]),
+                }
+            )
+        return commits
 
     def run_git_log(self, cmd):
         """
