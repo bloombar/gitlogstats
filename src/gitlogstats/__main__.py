@@ -5,6 +5,7 @@ import datetime
 import re
 import sys
 from . import GitLogsParser
+from . import aggregate
 from .clones import remove_clones
 from .git_logs_parser import FIELDNAMES
 from .github import (
@@ -147,6 +148,14 @@ def main():
         action="store_true",
     )
     parser.add_argument(
+        "-a",
+        "--aggregate",
+        help="Combine the results into one row per developer, summed over all "
+        "repositories, or one row per repository, summed over its contributors",
+        default=None,
+        choices=aggregate.MODES,
+    )
+    parser.add_argument(
         "--github",
         help="Also report GitHub pull requests opened, merged, closed and "
         "self-merged per contributor, with their git and GitHub emails, their "
@@ -259,6 +268,10 @@ def main():
             if args.github
             else None
         )
+        # OUT-6: one row per developer or per repository
+        if args.aggregate:
+            all_results = aggregate.aggregate(all_results, args.aggregate, args.github)
+            fieldnames = aggregate.fieldnames(args.aggregate, args.github)
         output = last_parser.format_results(all_results, args.format, fieldnames)
         # end with exactly one newline: CSV and Markdown output already has one
         print(output, end="" if output.endswith("\n") else "\n")
