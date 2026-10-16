@@ -214,11 +214,11 @@ In both modes every count is the sum of the combined rows, so each total equals 
 
 #### OUT-7 Results by day
 
-`-a/--aggregate day` prints one row per day on which anything was counted, summed over every contributor and repository analyzed, in date order. Its columns are `date, commits, insertions, deletions, files, merges, repositories, contributors`, where `date` is the day in `mm/dd/yyyy` format, `repositories` is the number of repositories with any activity that day and `contributors` the number of developers with any activity that day (a developer is identified as in OUT-6, so one person active in several repositories counts once). With `--github`, the columns `prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, pushes_to_default, web_commits` follow. There are no `username`, `repository`, `start_date`, `end_date`, `github_username`, `git_email` or `github_email` columns.
+`-a/--aggregate day` prints one row per day on which anything was counted, summed over every contributor and repository analyzed, in date order. Its columns are `date, commits, insertions, deletions, files, merges, repositories, contributors`, where `date` is the day in `mm/dd/yyyy` format, `repositories` is the number of repositories with any activity that day and `contributors` the number of developers with any activity that day (a developer is identified as in OUT-6, so one person active in several repositories counts once, while one matched to a GitHub user in one repository but not in another counts twice). With `--github`, the columns `prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, pushes_to_default, web_commits` follow. There are no `username`, `repository`, `start_date`, `end_date`, `github_username`, `git_email` or `github_email` columns.
 
 Each event is counted on the day it happened, in local time, the same way FILT-1 limits the date range: a commit, merge or website commit on its commit date; a pull request as opened on the day it was created, as merged (and self-merged) on the day it was merged, and as closed without merging on the day it was closed; a push on the day it was pushed. So the day totals add up to the totals printed without `-a`. Days without any activity are left out. `-u` limits the counts to that contributor (as in CLI-3 with `--github`); `-c` changes nothing, since inactive contributors add nothing to a day. A GitHub count is empty (`null` in JSON) only when no repository with activity that day could be asked about (CLI-3). The columns are printed in the CSV header even when there are no rows.
 
-**Status:** Todo
+**Status:** Done
 
 ### 5. Command-Line Interface
 

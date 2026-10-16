@@ -2486,3 +2486,188 @@ class TestAggregate:
         assert not {"username", "github_username", "git_email", "github_email"} & set(
             rows[0]
         )
+
+
+# ─── Results by day (OUT-7) ──────────────────────────────────────────────────
+
+DAY_HEADER = "date,commits,insertions,deletions,files,merges,repositories,contributors"
+
+
+class TestAggregateByDay:
+    @pytest.fixture
+    def repofile(self, tmp_path):
+        """
+        Two repositories. Alice works just before and after midnight on
+        03/10-03/11, in both repositories on 03/11; Bob merges on 03/12.
+        """
+        one = Repo(tmp_path / "remotes" / "one")
+        one.write("a.txt", lines(3))
+        one.commit("Alice", "late", date="2024-03-10 23:59:59")
+        one.write("b.txt", lines(1))
+        one.commit("Bob", "early", date="2024-03-11 00:00:00")
+        one.branch("feature")
+        one.write("c.txt", lines(2))
+        one.commit("Alice", "feature", date="2024-03-11 09:00:00")
+        one.switch("main")
+        one.merge("Bob", "feature", date="2024-03-12 10:00:00")
+        two = Repo(tmp_path / "remotes" / "two")
+        two.write("old.txt", lines(9))
+        two.commit("Carol", "old work", date="2020-01-01 12:00:00")
+        two.write("d.txt", lines(4))
+        two.commit("Alice", "two", date="2024-03-11 15:00:00")
+        path = tmp_path / "repos.txt"
+        path.write_text(f"{one.path}\n{two.path}\n")
+        return str(path)
+
+    def run(self, monkeypatch, capsys, tmp_path, repofile, *argv, dates=DATES):
+        out, _ = run_github(
+            monkeypatch, capsys, tmp_path, "-rf", repofile, *dates, *argv
+        )
+        return out
+
+    def test_one_row_per_active_day(self, repofile, tmp_path, monkeypatch, capsys):
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, "-a", "day")
+        assert out.splitlines() == [
+            DAY_HEADER,
+            "03/10/2024,1,3,0,1,0,1,1",
+            # Bob and Alice in one, Alice again in two: she counts once
+            "03/11/2024,3,7,0,3,0,2,2",
+            "03/12/2024,0,0,0,0,1,1,1",
+        ]
+
+    def test_days_add_up_to_the_totals(self, repofile, tmp_path, monkeypatch, capsys):
+        days = json.loads(
+            self.run(monkeypatch, capsys, tmp_path, repofile, "-a", "day", "-f", "json")
+        )
+        plain = json.loads(
+            self.run(monkeypatch, capsys, tmp_path, repofile, "-f", "json")
+        )
+        for column in COUNT_COLUMNS:
+            assert sum(d[column] for d in days) == sum(r[column] for r in plain)
+
+    def test_user_and_range(self, repofile, tmp_path, monkeypatch, capsys):
+        out = self.run(
+            monkeypatch, capsys, tmp_path, repofile, "-a", "day", "-u", "Alice"
+        )
+        assert out.splitlines()[1:] == [
+            "03/10/2024,1,3,0,1,0,1,1",
+            "03/11/2024,2,6,0,2,0,2,1",
+        ]
+        out = self.run(
+            monkeypatch, capsys, tmp_path, repofile, "-a", "day",
+            dates=["-s", "03/11/2024", "-e", "03/11/2024"],
+        )  # fmt: skip
+        assert out.splitlines()[1:] == ["03/11/2024,3,7,0,3,0,2,2"]
+
+    def test_clean_changes_nothing(self, repofile, tmp_path, monkeypatch, capsys):
+        argv = ["-a", "day", "-f", "markdown"]
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv)
+        assert self.run(monkeypatch, capsys, tmp_path, repofile, *argv, "-c") == out
+        assert out.splitlines()[0] == "| " + " | ".join(DAY_HEADER.split(",")) + " |"
+
+    def test_no_activity_prints_only_the_header(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        argv = ["-a", "day"]
+        dates = ["-s", "01/01/2023", "-e", "12/31/2023"]
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv, dates=dates)
+        assert out == DAY_HEADER + "\n"
+        out = self.run(
+            monkeypatch, capsys, tmp_path, repofile, *argv, "-f", "json", dates=dates
+        )
+        assert json.loads(out) == []
+
+    def test_github_events_are_counted_on_their_own_days(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        widgets = Repo(tmp_path / "remotes" / "widgets")
+        widgets.write("a.txt", lines(2))
+        widgets.commit(
+            "ada", "work", date="2024-03-10 12:00:00", email="ada@laptop.example"
+        )
+        first = head(widgets)
+        widgets.write("w.txt", lines(1))
+        widgets.commit(
+            "ada", "Update w.txt", date="2024-03-12 12:00:00",
+            email="ada@laptop.example", committer=("GitHub", "noreply@github.com"),
+        )  # fmt: skip
+        web = head(widgets)
+        local = Repo(tmp_path / "remotes" / "local")
+        local.write("b.txt", lines(5))
+        local.commit("Bob", "work", date="2024-03-11 08:00:00", email="bob@example.com")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                # opened on a day without commits, merged by its author later
+                pr(
+                    "adal99", at(2024, 3, 9), merged=at(2024, 3, 11), merged_by="adal99"
+                ),
+                pr("mia", at(2024, 3, 11)),
+                pr("mia", at(2023, 12, 31)),  # before the range
+            ],
+            users={"adal99": {"name": "Ada", "email": None}},
+            contributors=["adal99"],
+            linked={first: "adal99", web: "adal99"},
+            pushes=[push("adal99", at(2024, 3, 13))],
+        )
+        repofile = tmp_path / "repos.txt"
+        repofile.write_text(f"{GITHUB_URL}\n{local.path}\n")
+        argv = ["-rf", str(repofile), "--github", *DATES, "-f", "json"]
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-a", "day")
+        days = {d["date"]: d for d in json.loads(out)}
+        assert list(days) == [
+            "03/09/2024", "03/10/2024", "03/11/2024", "03/12/2024", "03/13/2024",
+        ]  # fmt: skip
+        assert set(days["03/09/2024"]) == set(
+            DAY_HEADER.split(",") + PR_COLUMNS + ACTIVITY_COLUMNS
+        )
+        summary = {
+            day: (
+                d["commits"], d["repositories"], d["contributors"],
+                *[d[c] for c in PR_COLUMNS], *[d[c] for c in ACTIVITY_COLUMNS],
+            )
+            for day, d in days.items()
+        }  # fmt: skip
+        assert summary == {
+            "03/09/2024": (0, 1, 1, 1, 0, 0, 0, 0, 0),
+            "03/10/2024": (1, 1, 1, 0, 0, 0, 0, 0, 0),
+            # ada's self-merge, mia's new pull request and Bob's local commit
+            "03/11/2024": (1, 2, 3, 1, 1, 0, 1, 0, 0),
+            "03/12/2024": (1, 1, 1, 0, 0, 0, 0, 0, 1),
+            "03/13/2024": (0, 1, 1, 0, 0, 0, 0, 1, 0),
+        }
+        # the days add up to the totals printed without -a
+        plain = json.loads(run_github(monkeypatch, capsys, tmp_path, *argv)[0])
+        for column in COUNT_COLUMNS + PR_COLUMNS + ACTIVITY_COLUMNS:
+            assert sum(d[column] for d in days.values()) == sum(
+                r[column] or 0 for r in plain
+            ), column
+
+        # -u selects one developer's activity on each day, by GitHub username
+        out, _ = run_github(
+            monkeypatch, capsys, tmp_path, *argv, "-a", "day", "-u", "adal99"
+        )
+        assert [(d["date"], d["contributors"]) for d in json.loads(out)] == [
+            ("03/09/2024", 1),
+            ("03/10/2024", 1),
+            ("03/11/2024", 1),
+            ("03/12/2024", 1),
+            ("03/13/2024", 1),
+        ]
+
+    def test_unavailable_repository_has_empty_github_counts(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        local = Repo(tmp_path / "remotes" / "local")
+        local.write("b.txt", lines(5))
+        local.commit("Bob", "work", date="2024-03-11 08:00:00", email="bob@example.com")
+        github_world(tmp_path, monkeypatch, local)
+        argv = ["-r", local.path, "--github", *DATES, "-a", "day"]
+        out, err = run_github(monkeypatch, capsys, tmp_path, *argv)
+        assert "not a github.com repository" in err
+        assert out.splitlines() == [
+            DAY_HEADER + "," + ",".join(PR_COLUMNS + ACTIVITY_COLUMNS),
+            "03/11/2024,1,5,0,1,0,1,1,,,,,,",
+        ]
