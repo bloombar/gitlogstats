@@ -2226,3 +2226,262 @@ class TestGitHub:
         }
         assert identities["Alice"]["a@home.example"] == first
         assert set(identities) == set(parser.get_contributors())
+
+
+# ─── Aggregated results (OUT-6) ──────────────────────────────────────────────
+
+COUNT_COLUMNS = ["commits", "insertions", "deletions", "files", "merges"]
+
+
+def totals(rows, key):
+    """Sum each count of unaggregated JSON rows, per value of *key*."""
+    sums = {}
+    for row in rows:
+        found = sums.setdefault(row[key], {c: 0 for c in COUNT_COLUMNS})
+        for column in COUNT_COLUMNS:
+            found[column] += row[column]
+    return sums
+
+
+class TestAggregate:
+    @pytest.fixture
+    def repofile(self, tmp_path):
+        """Two repositories sharing Alice; Carol is active only before 2024."""
+        one = Repo(tmp_path / "remotes" / "one")
+        one.write("a.txt", lines(3))
+        one.commit("Alice", "add a")
+        one.branch("feature")
+        one.write("a.txt", lines(1) + lines(2, "changed"))
+        one.write("b.txt", lines(4))
+        one.commit("Alice", "change a, add b")
+        one.switch("main")
+        one.merge("Bob", "feature")
+        one.write("c.txt", lines(1))
+        one.commit("Bob", "add c")
+        two = Repo(tmp_path / "remotes" / "two")
+        two.write("old.txt", lines(9))
+        two.commit("Carol", "old work", date="2020-01-01 12:00:00")
+        two.write("d.txt", lines(2))
+        two.write("e.txt", lines(5))
+        two.commit("Alice", "add d and e")
+        path = tmp_path / "repos.txt"
+        path.write_text(f"{one.path}\n{two.path}\n")
+        return str(path)
+
+    def run(self, monkeypatch, capsys, tmp_path, repofile, *argv):
+        out, _ = run_github(
+            monkeypatch, capsys, tmp_path, "-rf", repofile, *DATES, *argv
+        )
+        return out
+
+    def test_developer_totals_are_sums_of_the_unaggregated_rows(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        plain = json.loads(
+            self.run(monkeypatch, capsys, tmp_path, repofile, "-f", "json")
+        )
+        out = self.run(
+            monkeypatch, capsys, tmp_path, repofile, "-f", "json", "-a", "developer"
+        )
+        rows = json.loads(out)
+        assert [r["username"] for r in rows] == ["Alice", "Bob", "Carol"]
+        sums = totals(plain, "username")
+        for row in rows:
+            assert {c: row[c] for c in COUNT_COLUMNS} == sums[row["username"]]
+            assert "repository" not in row
+        alice = rows[0]
+        # 1 + 2 + 1 commits; 3 + (2 + 4) + (2 + 5) lines; 1 + 2 + 2 files
+        assert [alice[c] for c in COUNT_COLUMNS] == [3, 16, 2, 5, 0]
+        assert alice["repositories"] == 2
+        assert [rows[1][c] for c in COUNT_COLUMNS] == [1, 1, 0, 1, 1]
+        assert (rows[2]["commits"], rows[2]["repositories"]) == (0, 1)
+
+    def test_repository_totals_are_sums_over_contributors(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        plain = json.loads(
+            self.run(monkeypatch, capsys, tmp_path, repofile, "-f", "json")
+        )
+        out = self.run(
+            monkeypatch, capsys, tmp_path, repofile, "-f", "json", "-a", "repository"
+        )
+        rows = json.loads(out)
+        assert [(r["repository"], r["contributors"]) for r in rows] == [
+            ("one", 2),
+            ("two", 2),
+        ]
+        sums = totals(plain, "repository")
+        for row in rows:
+            assert {c: row[c] for c in COUNT_COLUMNS} == sums[row["repository"]]
+            assert "username" not in row
+        assert [rows[0][c] for c in COUNT_COLUMNS] == [3, 10, 2, 4, 1]
+
+    def test_csv_and_markdown_columns(self, repofile, tmp_path, monkeypatch, capsys):
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, "-a", "developer")
+        assert out.splitlines() == [
+            "username,start_date,end_date,commits,insertions,deletions,files,merges,repositories",
+            "Alice,01/01/2024,12/31/2024,3,16,2,5,0,2",
+            "Bob,01/01/2024,12/31/2024,1,1,0,1,1,1",
+            "Carol,01/01/2024,12/31/2024,0,0,0,0,0,1",
+        ]
+        out = self.run(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            repofile,
+            "-a",
+            "repository",
+            "-f",
+            "markdown",
+        )
+        assert out.splitlines()[0] == (
+            "| repository | start_date | end_date | commits | insertions | deletions"
+            " | files | merges | contributors |"
+        )
+        assert (
+            out.splitlines()[2]
+            == "| one | 01/01/2024 | 12/31/2024 | 3 | 10 | 2 | 4 | 1 | 2 |"
+        )
+
+    def test_clean_applies_before_counting(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        out = self.run(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            repofile,
+            "-c",
+            "-f",
+            "json",
+            "-a",
+            "repository",
+        )
+        assert [(r["repository"], r["contributors"]) for r in json.loads(out)] == [
+            ("one", 2),
+            ("two", 1),
+        ]
+        out = self.run(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            repofile,
+            "-c",
+            "-f",
+            "json",
+            "-a",
+            "developer",
+        )
+        assert [r["username"] for r in json.loads(out)] == ["Alice", "Bob"]
+
+    def test_user_gives_one_developer_or_their_share_per_repository(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        argv = ["-u", "Alice", "-f", "json", "-a"]
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv, "developer")
+        assert [
+            (r["username"], r["commits"], r["repositories"]) for r in json.loads(out)
+        ] == [("Alice", 3, 2)]
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv, "repository")
+        assert [
+            (r["repository"], r["commits"], r["contributors"]) for r in json.loads(out)
+        ] == [("one", 2, 1), ("two", 1, 1)]
+
+    @pytest.mark.parametrize(
+        "mode, header",
+        [
+            (
+                "developer",
+                "username,start_date,end_date,commits,insertions,deletions,files,merges,repositories",
+            ),
+            (
+                "repository",
+                "repository,start_date,end_date,commits,insertions,deletions,files,merges,contributors",
+            ),
+        ],
+    )
+    def test_no_rows_still_prints_the_header(
+        self, repofile, tmp_path, monkeypatch, capsys, mode, header
+    ):
+        argv = ["-u", "nobody", "-c", "-a", mode]
+        assert self.run(monkeypatch, capsys, tmp_path, repofile, *argv) == header + "\n"
+        out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv, "-f", "json")
+        assert json.loads(out) == []
+
+    def test_invalid_mode_is_a_usage_error(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        with pytest.raises(SystemExit) as exc:
+            self.run(monkeypatch, capsys, tmp_path, repofile, "-a", "team")
+        assert exc.value.code == 2
+        assert "invalid choice: 'team'" in capsys.readouterr().err
+
+    def test_github_developer_and_repository(self, tmp_path, monkeypatch, capsys):
+        widgets = Repo(tmp_path / "remotes" / "widgets")
+        widgets.write("a.txt", lines(2))
+        widgets.commit("ada", "work", email="ada@laptop.example")
+        first = head(widgets)
+        widgets.write("b.txt", lines(1))
+        widgets.commit("Bob", "work", email="bob@example.com")
+        local = Repo(tmp_path / "remotes" / "local")
+        local.write("c.txt", lines(4))
+        local.commit("Bob", "work", email="bob@home.example")
+        local.write("d.txt", lines(1))
+        local.commit("ada", "work", email="ada@laptop.example")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr("adal99", at(2024, 3, 5), merged=at(2024, 3, 6)),
+                pr("mia", at(2024, 3, 7)),
+            ],
+            users={"adal99": {"name": "Ada", "email": "ada@pub.example"}},
+            contributors=["adal99"],
+            linked={first: "adal99"},
+            pushes=[push("adal99", at(2024, 3, 6))],
+        )
+        repofile = tmp_path / "repos.txt"
+        repofile.write_text(f"{GITHUB_URL}\n{local.path}\n")
+        argv = ["-rf", str(repofile), "--github", *DATES, "-f", "json", "-a"]
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "developer")
+        rows = {(r["username"], r["github_username"]): r for r in json.loads(out)}
+        # ada is matched on GitHub in widgets but not in the local repository;
+        # mia, with no git row, sorts by her login
+        assert list(rows) == [
+            ("ada", "adal99"),
+            ("ada", None),
+            ("Bob", ""),
+            ("", "mia"),
+        ]
+        ada = rows[("ada", "adal99")]
+        assert (ada["commits"], ada["repositories"], ada["prs_opened"]) == (1, 1, 1)
+        assert (ada["prs_merged"], ada["pushes_to_default"]) == (1, 1)
+        assert (ada["git_email"], ada["github_email"]) == (
+            "ada@laptop.example",
+            "ada@pub.example",
+        )
+        unmatched = rows[("ada", None)]
+        assert unmatched["commits"] == 1
+        assert all(unmatched[c] is None for c in PR_COLUMNS + ACTIVITY_COLUMNS)
+        # Bob: unmatched in widgets (zeros) and unavailable locally (empty)
+        bob = rows[("Bob", "")]
+        assert (bob["commits"], bob["repositories"], bob["prs_opened"]) == (2, 2, 0)
+        assert (bob["git_email"], bob["github_email"]) == (
+            "bob@example.com; bob@home.example",
+            "",
+        )
+        assert rows[("", "mia")]["prs_opened"] == 1
+
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "repository")
+        rows = json.loads(out)
+        assert [(r["repository"], r["contributors"], r["commits"]) for r in rows] == [
+            ("local", 2, 2),
+            ("widgets", 3, 2),
+        ]
+        assert [rows[1][c] for c in PR_COLUMNS] == [2, 1, 0, 0]
+        assert rows[1]["pushes_to_default"] == 1
+        assert all(rows[0][c] is None for c in PR_COLUMNS + ACTIVITY_COLUMNS)
+        assert not {"username", "github_username", "git_email", "github_email"} & set(
+            rows[0]
+        )
