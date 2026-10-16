@@ -2294,7 +2294,8 @@ class TestAggregate:
         assert [alice[c] for c in COUNT_COLUMNS] == [3, 16, 2, 5, 0]
         assert alice["repositories"] == 2
         assert [rows[1][c] for c in COUNT_COLUMNS] == [1, 1, 0, 1, 1]
-        assert (rows[2]["commits"], rows[2]["repositories"]) == (0, 1)
+        # Carol is listed (no -c) but was not active in any repository
+        assert (rows[2]["commits"], rows[2]["repositories"]) == (0, 0)
 
     def test_repository_totals_are_sums_over_contributors(
         self, repofile, tmp_path, monkeypatch, capsys
@@ -2308,7 +2309,7 @@ class TestAggregate:
         rows = json.loads(out)
         assert [(r["repository"], r["contributors"]) for r in rows] == [
             ("one", 2),
-            ("two", 2),
+            ("two", 1),  # Carol is listed (no -c) but inactive
         ]
         sums = totals(plain, "repository")
         for row in rows:
@@ -2322,7 +2323,7 @@ class TestAggregate:
             "username,start_date,end_date,commits,insertions,deletions,files,merges,repositories",
             "Alice,01/01/2024,12/31/2024,3,16,2,5,0,2",
             "Bob,01/01/2024,12/31/2024,1,1,0,1,1,1",
-            "Carol,01/01/2024,12/31/2024,0,0,0,0,0,1",
+            "Carol,01/01/2024,12/31/2024,0,0,0,0,0,0",
         ]
         out = self.run(
             monkeypatch,

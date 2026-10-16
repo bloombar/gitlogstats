@@ -207,6 +207,7 @@ class TestByDeveloper:
                 "Ada Lovelace",
                 "two",
                 login="adal",
+                commits=5,
                 git_email="a@work.example",
                 github_email="ada@pub.example",
                 prs_opened=2,
@@ -217,13 +218,43 @@ class TestByDeveloper:
         ]
         (row,) = aggregate(rows, DEVELOPER, True)
         assert list(row) == fieldnames(DEVELOPER, True)
-        assert row["username"] == "ada"
+        assert row["username"] == "Ada Lovelace"  # the most commits
         assert row["github_username"] == "AdaL"
         assert row["git_email"] == "a@home.example; a@work.example"
         assert row["github_email"] == "ada@pub.example"
-        assert (row["commits"], row["repositories"]) == (2, 2)
+        assert (row["commits"], row["repositories"]) == (6, 2)
         assert [row[f] for f in PR_COUNTS] == [2, 1, 0, 0]
         assert (row["pushes_to_default"], row["web_commits"]) == (3, 1)
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_username_does_not_depend_on_repository_order(self, reverse):
+        rows = [
+            github_row("a.smith", "one", login="agh", commits=0),
+            github_row("Alice Smith", "two", login="agh", commits=50),
+            github_row("alice", "three", login="agh", commits=50),
+        ]
+        rows = rows[::-1] if reverse else rows
+        (row,) = aggregate(rows, DEVELOPER, True)
+        assert row["username"] == "Alice Smith"  # most commits, ties alphabetical
+
+    def test_repositories_counts_only_active_rows(self):
+        idle = git_row("Ada", "two", commits=0)
+        rows = [git_row("Ada", "one"), idle, git_row("Bob", "two", commits=0)]
+        ada, bob = aggregate(rows, DEVELOPER, False)
+        assert (ada["repositories"], bob["repositories"]) == (1, 0)
+
+    def test_github_activity_alone_makes_a_row_active(self):
+        rows = [
+            github_row("ada", "one", login="adal", commits=0, prs_opened=1),
+            github_row("ada", "two", login="adal", commits=0, pushes_to_default=1),
+            github_row("ada", "three", login="adal", commits=0),
+            unavailable("ada", "four", commits=0),
+        ]
+        out = aggregate(rows, DEVELOPER, True)
+        assert [(r["github_username"], r["repositories"]) for r in out] == [
+            ("adal", 2),
+            (None, 0),
+        ]
 
     def test_github_only_row_takes_username_from_another_repository(self):
         rows = [
@@ -307,6 +338,15 @@ class TestByRepository:
                 "contributors": 1,
             },
         ]
+
+    def test_contributors_counts_only_active_rows(self):
+        rows = [
+            git_row("Ada", "one"),
+            git_row("Bob", "one", commits=0),
+            git_row("Cy", "two", commits=0),
+        ]
+        one, two = aggregate(rows, REPOSITORY, False)
+        assert (one["contributors"], two["contributors"]) == (1, 0)
 
     def test_github_columns(self):
         rows = [

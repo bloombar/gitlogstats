@@ -157,7 +157,7 @@ gitlogstats -rf repos.txt -a developer
 gitlogstats -rf repos.txt -a repository
 ```
 
-Developer rows have no `repository` column; instead a `repositories` column counts the repositories the developer has a row in. Repository rows have no username or email columns; a `contributors` column counts the contributor rows combined. `-u` and `-c` are applied first, so `-u alice -a repository` shows Alice's share of each repository. With `--github`, a developer's rows are combined by GitHub username, so different git names linked to one GitHub account become one row, and their email addresses are listed together. A developer matched to a GitHub account in one repository but not in another (for example a repository not on GitHub) keeps a separate row for each.
+Developer rows have no `repository` column; instead a `repositories` column counts the repositories the developer was active in during the date range. Repository rows have no username or email columns; a `contributors` column counts the contributors who were active in the repository during the date range. `-u` and `-c` are applied first, so `-u alice -a repository` shows Alice's share of each repository. With `--github`, a developer's rows are combined by GitHub username, so different git names linked to one GitHub account become one row, and their email addresses are listed together. A developer matched to a GitHub account in one repository but not in another (for example a repository not on GitHub) keeps a separate row for each.
 
 ### Cloned repositories
 
