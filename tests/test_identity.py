@@ -6,7 +6,11 @@ All names, emails and logins here are invented.
 import copy
 
 from gitlogstats.git_logs_parser import FIELDNAMES
-from gitlogstats.github import EMAIL_FIELDNAMES, GITHUB_FIELDNAMES
+from gitlogstats.github import (
+    ACTIVITY_FIELDNAMES,
+    EMAIL_FIELDNAMES,
+    GITHUB_FIELDNAMES,
+)
 from gitlogstats.identity import (
     consolidate,
     join_emails,
@@ -334,7 +338,10 @@ def test_consolidate_position_of_first_member():
 def test_consolidate_column_order_and_zero_counts():
     rows = [git_row("a")]
     out = consolidate(rows, {"a": ("ahub", "email")}, {}, "repo", "s", "e", {}, {})
-    assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
+    assert (
+        list(out[0])
+        == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES
+    )
     assert out[0]["github_username"] == "ahub"
     assert out[0]["prs_opened"] == out[0]["prs_merged"] == 0
     assert out[0]["prs_self_merged"] == 0
@@ -358,7 +365,10 @@ def test_consolidate_github_only_rows_sorted_after_git_rows():
     for field in ["commits", "insertions", "deletions", "files", "merges"]:
         assert only[field] == 0
     for r in out:
-        assert list(r) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
+        assert (
+            list(r)
+            == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES
+        )
 
 
 def test_consolidate_does_not_mutate_inputs():
@@ -373,8 +383,11 @@ def test_consolidate_does_not_mutate_inputs():
 def test_unavailable_row():
     row = git_row("a")
     out = unavailable_row(row)
-    assert list(out) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
-    assert all(out[f] is None for f in GITHUB_FIELDNAMES)
+    assert (
+        list(out)
+        == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES
+    )
+    assert all(out[f] is None for f in GITHUB_FIELDNAMES + ACTIVITY_FIELDNAMES)
     assert out["git_email"] == ""
     assert out["github_email"] is None
     assert out["commits"] == 1
@@ -430,4 +443,7 @@ def test_consolidate_github_only_row_has_no_git_email():
         ("bob", "", ""),
         ("Zed", "", "zed@x.example"),
     ]
-    assert list(out[0]) == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES
+    assert (
+        list(out[0])
+        == FIELDNAMES + GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES
+    )

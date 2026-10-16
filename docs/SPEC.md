@@ -126,11 +126,23 @@ With `--github`, every row also reports the contributor's email addresses in two
 
 **Status:** Done
 
+#### STAT-14 Pushes to the analyzed branch
+
+With `--github`, for each contributor, the number of times they pushed directly to the analyzed branch (the default branch, or the `-b` branch) in the date range, reported in a `pushes_to_default` column appended after `github_email`. Pushes come from GitHub's repository activity record (`repos/{owner}/{repo}/activity`), which names the GitHub user who pushed: activity types `push` and `force_push` count; pull-request merges, merge-queue merges and branch creation or deletion do not. One push counts once however many commits it carries. Each push is filtered by its own timestamp, using the same inclusive local-time range as FILT-1, and credited to the row of the GitHub user who pushed (STAT-11); a GitHub user with pushes but no other row gets a GitHub-only row. GitHub's activity record does not go back before September 2023, so older pushes are not counted. Without `-b`, the branch is the default branch; if the clone is on no branch (a tag or commit was checked out), no pushes are counted. GitHub lets anyone who can see a public repository read its activity record; a private repository needs access to it.
+
+**Status:** Done
+
+#### STAT-15 Commits made on the GitHub website
+
+With `--github`, for each contributor, how many of their commits counted in `commits` (STAT-1: same date range, exclusions and branch, merges excluded) were made on GitHub's website rather than in a local clone, reported in a `web_commits` column appended after `pushes_to_default`, so `web_commits` is never larger than `commits`. A commit counts when GitHub created it — its committer is `GitHub <noreply@github.com>` — and it is not the result of merging a pull request: a commit GitHub created when squash- or rebase-merging a pull request is not a website commit. Such a commit is the merge commit GitHub names for a merged pull request, or was committed within 2 seconds of one (the other commits of a rebase merge); GitHub commits the result a few seconds before it marks the pull request merged, so the pull request's merge time is used only when GitHub names no merge commit. A named merge commit committed more than a minute before or after the merge time is the pull request's own head commit, which reached the branch another way, so that pull request excludes nothing. A commit GitHub created when a repository was created on the website (a root commit) counts like any other. Such commits are typically file edits, creations, deletions and uploads made in the browser; commits made through GitHub's API (e.g. `github.dev`) look the same and are counted too. Website commits are credited to the commit's author, like `commits`, and summed when identities are combined (STAT-11). When GitHub statistics are unavailable for a repository (CLI-3), `pushes_to_default` and `web_commits` are empty (`null` in JSON).
+
+**Status:** Done
+
 ### 3. Filtering
 
 #### FILT-1 Date range
 
-`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time. Defaults: one year ago until today. The output records the requested start and end dates on every row. With `--github`, each pull request count is filtered by its own timestamp in the same range (CLI-3).
+`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time. Defaults: one year ago until today. The output records the requested start and end dates on every row. With `--github`, each pull request and push count is filtered by its own timestamp in the same range (CLI-3).
 
 **Status:** Done
 
@@ -148,7 +160,7 @@ With `--github`, every row also reports the contributor's email addresses in two
 
 #### FILT-4 Remove inactive contributors
 
-By default, contributors with no activity in the date range are listed with zeros. `-c/--clean` removes them. With `--github`, only rows with neither git nor pull-request activity are removed (CLI-3).
+By default, contributors with no activity in the date range are listed with zeros. `-c/--clean` removes them. With `--github`, only rows with neither git, pull-request nor push activity are removed (CLI-3).
 
 **Status:** Done
 
@@ -156,7 +168,7 @@ By default, contributors with no activity in the date range are listed with zero
 
 #### OUT-1 CSV output
 
-`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline. With `--github`, the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, git_email, github_email` are appended, and are in the header even when there are no rows (CLI-3).
+`-f csv` (the default) prints a header row followed by one row per contributor per repository, with fields `username, repository, start_date, end_date, commits, insertions, deletions, files, merges`. New fields are added at the end so existing column positions do not change. Values containing commas, quotes or line breaks are quoted. The header is printed even when there are no rows, and the output ends with a single newline. With `--github`, the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, git_email, github_email, pushes_to_default, web_commits` are appended, and are in the header even when there are no rows (CLI-3).
 
 **Status:** Done
 
@@ -200,12 +212,12 @@ Invalid dates, and a start date after the end date, are rejected with a usage er
 
 #### CLI-3 GitHub pull-request statistics
 
-`--github` adds GitHub pull-request statistics (STAT-8 to STAT-12) and contributor emails (STAT-13) for repositories hosted on github.com, appending the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, git_email, github_email` to every output format. Without `--github`, the output and behaviour are unchanged, GitHub is never contacted and the GitHub CLI (`gh`) is not needed. With `--github`, the GitHub API is called through `gh api`, so `gh` must be installed and signed in. This is checked before any repository is cloned; if it fails, nothing is printed to standard output, the tool exits with status 1, and one plain message on standard error says why and what to do — no stack trace:
+`--github` adds GitHub pull-request statistics (STAT-8 to STAT-12), contributor emails (STAT-13), pushes to the analyzed branch (STAT-14) and website commits (STAT-15) for repositories hosted on github.com, appending the columns `github_username, prs_opened, prs_merged, prs_closed_unmerged, prs_self_merged, git_email, github_email, pushes_to_default, web_commits` to every output format. Without `--github`, the output and behaviour are unchanged, GitHub is never contacted and the GitHub CLI (`gh`) is not needed. With `--github`, the GitHub API is called through `gh api`, so `gh` must be installed and signed in. This is checked before any repository is cloned; if it fails, nothing is printed to standard output, the tool exits with status 1, and one plain message on standard error says why and what to do — no stack trace:
 
 - `gh` not found: `gitlogstats: --github needs the GitHub CLI (gh), which is not installed. Install it from https://cli.github.com and run 'gh auth login', or run without --github.`
 - `gh` not signed in (`gh auth status` fails): `gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth login', or run without --github.`
 
-The other options apply to pull requests as follows: `-s/-e` filter each count by its own timestamp, using the same inclusive local-time range as FILT-1; `-u` selects the combined row whose author names, emails or GitHub username match exactly (the username ignoring case); `-b` counts only pull requests whose base branch is that branch, and without `-b` every pull request counts; `-c` removes only rows with neither git nor pull-request activity; `-x` does not apply. For a repository not on github.com, or when GitHub cannot be reached for one repository (no network, rate limit, private repository without access), the git statistics are still reported, the GitHub columns (including `github_email`) are empty (`null` in JSON) rather than zero while `git_email` is still filled in (STAT-13), and the reason is printed to standard error.
+The other options apply to pull requests as follows: `-s/-e` filter each count by its own timestamp, using the same inclusive local-time range as FILT-1; `-u` selects the combined row whose author names, emails or GitHub username match exactly (the username ignoring case); `-b` counts only pull requests whose base branch is that branch, and without `-b` every pull request counts; `-c` removes only rows with neither git, pull-request nor push activity; `-x` does not apply to pull requests or pushes (it limits which commits count as website commits, as it does for `commits`); `-b` also selects the branch whose pushes are counted. For a repository not on github.com, or when GitHub cannot be reached for one repository (no network, rate limit, private repository without access), the git statistics are still reported, the GitHub columns (including `github_email`, `pushes_to_default` and `web_commits`) are empty (`null` in JSON) rather than zero while `git_email` is still filled in (STAT-13), and the reason is printed to standard error.
 
 **Status:** Done
 

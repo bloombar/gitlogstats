@@ -9,7 +9,11 @@ import re
 import unicodedata
 
 from gitlogstats.git_logs_parser import FIELDNAMES
-from gitlogstats.github import EMAIL_FIELDNAMES, GITHUB_FIELDNAMES
+from gitlogstats.github import (
+    ACTIVITY_FIELDNAMES,
+    EMAIL_FIELDNAMES,
+    GITHUB_FIELDNAMES,
+)
 
 NOREPLY_RE = re.compile(
     r"^(?:\d+\+)?([^@+\s]+)@users\.noreply\.github\.com$", re.IGNORECASE
@@ -41,6 +45,8 @@ GENERIC_LOCAL_PARTS = {
 
 _SUMMED_FIELDS = ["commits", "insertions", "deletions", "files", "merges"]
 _PR_FIELDS = GITHUB_FIELDNAMES[1:]
+# per-GitHub-user counts: pull requests (STAT-8 to 12) and pushes (STAT-14)
+_USER_FIELDS = _PR_FIELDS + ACTIVITY_FIELDNAMES[:1]
 
 
 def login_from_noreply(email):
@@ -187,6 +193,8 @@ def _blank_row(row):
         out[field] = 0
     out["git_email"] = ""
     out["github_email"] = ""
+    out["pushes_to_default"] = 0
+    out["web_commits"] = row.get("web_commits", 0)  # STAT-15
     return out
 
 
@@ -194,22 +202,24 @@ def consolidate(
     rows, matches, pr_counts, repository, start, end, identities, github_emails
 ):
     """
-    Merge git rows that belong to one GitHub user and add pull-request counts.
+    Merge git rows that belong to one GitHub user and add their GitHub counts.
 
     Rows matched to the same login become one row: the username is the member
     with the most commits (ties alphabetical) and the statistics are summed.
-    GitHub users with pull requests but no git row get a row of their own,
-    appended after the git rows in login order.
-    @param rows: git rows for one repository, from GitLogsParser.parse().
+    GitHub users with pull requests or pushes but no git row get a row of their
+    own, appended after the git rows in login order.
+    @param rows: git rows for one repository, from GitLogsParser.parse(); a
+        row may have a "web_commits" count (STAT-15), which is summed.
     @param matches: {author_name: (login, tier)} from match_identities.
-    @param pr_counts: {login: {PR column: count}} from count_pull_requests.
+    @param pr_counts: {login: {PR column or pushes_to_default: count}}, the
+        counts of each GitHub user (missing columns count as 0).
     @param repository: kept for GitHub-only rows.
     @param start: start date kept for GitHub-only rows.
     @param end: end date kept for GitHub-only rows.
     @param identities: {author_name: emails} (STAT-13); for git_email.
     @param github_emails: {login: public profile email or None} (STAT-13).
     @returns: new rows with keys FIELDNAMES + GITHUB_FIELDNAMES +
-        EMAIL_FIELDNAMES.
+        EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES.
     """
     counts = {login.casefold(): value for login, value in pr_counts.items()}
     profile_emails = {login.casefold(): e for login, e in github_emails.items()}
@@ -233,7 +243,7 @@ def consolidate(
     def with_counts(out, login):
         out["github_username"] = login
         found = counts.get(login.casefold(), {})
-        for field in _PR_FIELDS:
+        for field in _USER_FIELDS:
             out[field] = found.get(field, 0)
         out["github_email"] = profile_emails.get(login.casefold()) or ""
         return out
@@ -251,6 +261,7 @@ def consolidate(
         out["username"] = best["username"]
         for field in _SUMMED_FIELDS:
             out[field] = sum(member[field] for member in members)
+        out["web_commits"] = sum(member.get("web_commits", 0) for member in members)
         out["git_email"] = join_emails(
             email
             for member in members
@@ -278,7 +289,7 @@ def unavailable_row(row, emails=()):
     @returns: a new row whose GitHub columns are None, except git_email.
     """
     out = {field: row[field] for field in FIELDNAMES}
-    for field in GITHUB_FIELDNAMES + EMAIL_FIELDNAMES:
+    for field in GITHUB_FIELDNAMES + EMAIL_FIELDNAMES + ACTIVITY_FIELDNAMES:
         out[field] = None
     out["git_email"] = join_emails(emails)
     return out
