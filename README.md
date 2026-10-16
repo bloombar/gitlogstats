@@ -29,7 +29,8 @@ The command `gitlogstats --help` shows the usage instructions:
 ```
 usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START]
                    [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}]
-                   [-b BRANCH] [-v] [-c] [--github] [--clobber]
+                   [-b BRANCH] [-v] [-c] [-a {developer,repository}]
+                   [--github] [--clobber]
 
 options:
   -h, --help            show this help message and exit
@@ -54,6 +55,10 @@ options:
                         The branch to parse, if not the default branch
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
+  -a {developer,repository}, --aggregate {developer,repository}
+                        Combine the results into one row per developer, summed
+                        over all repositories, or one row per repository,
+                        summed over its contributors
   --github              Also report GitHub pull requests opened, merged,
                         closed and self-merged per contributor, with their git
                         and GitHub emails, their pushes to the analyzed branch
@@ -142,6 +147,17 @@ By default, every contributor in a repository's history is listed, with zeros fo
 ```
 gitlogstats -rf repos.txt -c
 ```
+
+### Totals per developer or per repository
+
+By default there is one row per contributor per repository. Add `-a developer` to get one row per developer with their statistics summed over every repository, or `-a repository` to get one row per repository summed over its contributors.
+
+```
+gitlogstats -rf repos.txt -a developer
+gitlogstats -rf repos.txt -a repository
+```
+
+Developer rows have no `repository` column; instead a `repositories` column counts the repositories the developer was active in during the date range. Repository rows have no username or email columns; a `contributors` column counts the contributors who were active in the repository during the date range. `-u` and `-c` are applied first, so `-u alice -a repository` shows Alice's share of each repository. With `--github`, a developer's rows are combined by GitHub username, so different git names linked to one GitHub account become one row, and their email addresses are listed together. A developer matched to a GitHub account in one repository but not in another (for example a repository not on GitHub) keeps a separate row for each.
 
 ### Cloned repositories
 
