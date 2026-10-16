@@ -132,6 +132,22 @@
   family: OUT
   phase: 1
   status: Done
+- id: OUT-6
+  title: Aggregated results
+  full: -a/--aggregate developer prints one row per developer, summed over every
+    repository analyzed, instead of one row per contributor per repository. Its
+    columns are username, start_date, end_date, commits, insertions, deletions,
+    files, merges, repositories, where repositories is the number of
+    repositories the developer has a row in; there is no repository column. With
+    --github, the columns github_username, prs_opened, prs_merged,
+    prs_closed_unmerged, prs_self_merged, git_email, github_email,
+    pushes_to_default, web_commits follow. Rows are combined when they share a
+    GitHub username (ignoring case), or, for rows without one, the same git
+    username exactly; a developer matched to a GitHub user in…
+  section: §4 Output
+  family: OUT
+  phase: 1
+  status: Todo
 - id: PKG-1
   title: Installable package
   full: The tool installs with pip install gitlogstats, which provides a
