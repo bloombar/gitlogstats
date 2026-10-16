@@ -168,7 +168,7 @@ Add `-a day` to get one row per day on which anything happened, summed over ever
 gitlogstats -rf repos.txt -a day
 ```
 
-The columns are `date`, the usual counts, `repositories` (how many repositories had activity that day) and `contributors` (how many developers were active that day; someone active in several repositories counts once). Every event is counted on its own day in local time: commits and merges on their commit date and, with `--github`, pull requests on the day they were opened, merged or closed and pushes on the day they were pushed. The days therefore add up to the totals printed without `-a`. Days without activity are left out. Combine with `-u` to see one contributor's days.
+The columns are `date`, the usual counts, `repositories` (how many repositories had activity that day) and `contributors` (how many developers were active that day; someone active in several repositories counts once, but, as with `-a developer`, someone matched to a GitHub account in one repository and not in another counts twice). Every event is counted on its own day in local time: commits and merges on their commit date and, with `--github`, pull requests on the day they were opened, merged or closed and pushes on the day they were pushed. The days therefore add up to the totals printed without `-a`. Days without activity are left out. Combine with `-u` to see one contributor's days.
 
 ### Cloned repositories
 

@@ -315,21 +315,36 @@ def local_day(moment):
     return moment.strftime("%m/%d/%Y")
 
 
-def event_days(prs, pushes, start, end):
+def events_by_day(prs, pushes, start, end, branch=None):
     """
-    OUT-7: the days in a date range on which a pull request was opened,
-    merged or closed, or a push was made.
+    OUT-7: group pull requests and pushes by the local days in a date range on
+    which something happened to them, so each day is counted from its own
+    events only.
     @param prs: the list from fetch_pull_requests
     @param pushes: the list from fetch_pushes
     @param start: first day, mm/dd/yyyy
     @param end: last day, mm/dd/yyyy
-    @returns: a set of days, mm/dd/yyyy
+    @param branch: keep only pull requests with this base branch, if given
+    @returns: {day (mm/dd/yyyy): {"prs": [...], "pushes": [...], "commits":
+        []}}; a pull request is listed on each day it was opened, merged or
+        closed, and "commits" is left for the caller to fill
     """
     in_range = _range_test(start, end)
-    moments = [push["timestamp"] for push in pushes]
+    days = {}
+
+    def bucket(day):
+        return days.setdefault(day, {"prs": [], "pushes": [], "commits": []})
+
     for pr in prs:
-        moments += [pr["created_at"], pr["merged_at"], pr["closed_at"]]
-    return {local_day(moment) for moment in moments if in_range(moment)}
+        if branch is not None and pr["base"] != branch:
+            continue
+        moments = (pr["created_at"], pr["merged_at"], pr["closed_at"])
+        for day in {local_day(m) for m in moments if in_range(m)}:
+            bucket(day)["prs"].append(pr)
+    for push in pushes:
+        if in_range(push["timestamp"]):
+            bucket(local_day(push["timestamp"]))["pushes"].append(push)
+    return days
 
 
 def count_pull_requests(prs, start, end, branch=None):

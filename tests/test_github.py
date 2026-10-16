@@ -19,7 +19,7 @@ from gitlogstats.github import (
     commit_login,
     contributor_logins,
     count_pull_requests,
-    event_days,
+    events_by_day,
     fetch_pull_requests,
     gh_api,
     github_repo_from_url,
@@ -816,21 +816,25 @@ def test_local_day_of_timestamp_and_epoch_seconds():
     assert local_day(int(time.mktime(early.timetuple()))) == "03/11/2024"
 
 
-def test_event_days_lists_every_pull_request_and_push_day_in_range():
+def test_events_by_day_groups_pull_requests_and_pushes_by_local_day():
     day = lambda d, h=12: utc_z(datetime.datetime(2024, 3, d, h))
-    prs = [
-        make_pr(created=day(1), merged=day(2), closed=day(2)),
-        make_pr(created=day(3), closed=day(4)),
-        make_pr(created=day(5)),
-        make_pr(created=utc_z(datetime.datetime(2023, 12, 31, 23, 59, 59))),
-    ]
-    pushes = [{"login": "u", "timestamp": day(6)}, {"login": "u", "timestamp": day(31)}]
-    assert event_days(prs, pushes, "01/01/2024", "03/30/2024") == {
-        "03/01/2024",
-        "03/02/2024",
-        "03/03/2024",
-        "03/04/2024",
-        "03/05/2024",
-        "03/06/2024",
+    merged = make_pr(created=day(1), merged=day(2), closed=day(2))
+    closed = make_pr(created=day(3), closed=day(4))
+    same_day = make_pr(created=day(5, 9), merged=day(5, 17), closed=day(5, 17))
+    other_base = make_pr(created=day(7), base="dev")
+    too_early = make_pr(created=utc_z(datetime.datetime(2023, 12, 31, 23, 59, 59)))
+    early = {"login": "u", "timestamp": day(6)}
+    late = {"login": "u", "timestamp": day(31)}
+    prs = [merged, closed, same_day, other_base, too_early]
+    days = events_by_day(prs, [early, late], "01/01/2024", "03/30/2024", "main")
+    assert {d: (e["prs"], e["pushes"], e["commits"]) for d, e in days.items()} == {
+        "03/01/2024": ([merged], [], []),
+        "03/02/2024": ([merged], [], []),
+        "03/03/2024": ([closed], [], []),
+        "03/04/2024": ([closed], [], []),
+        "03/05/2024": ([same_day], [], []),  # listed once for its two events
+        "03/06/2024": ([], [early], []),
     }
-    assert event_days([], [], "01/01/2024", "03/30/2024") == set()
+    # without a branch, every base counts
+    assert "03/07/2024" in events_by_day(prs, [], "01/01/2024", "03/30/2024")
+    assert events_by_day([], [], "01/01/2024", "03/30/2024") == {}

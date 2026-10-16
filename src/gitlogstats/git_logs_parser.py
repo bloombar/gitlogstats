@@ -137,18 +137,15 @@ class GitLogsParser:
             f"--until={until:%Y-%m-%d %H:%M:%S}",
         ]
 
-    def git_log_command(self, log_format=LOG_FORMAT, shortstat=True, by_day=False):
+    def git_log_command(self, log_format=LOG_FORMAT, shortstat=True):
         """
         Build the git log command that lists every non-merge commit in the date
         range with its author and a one-line summary of its changes. Merge
         commits come from merge_log_command instead.
         @param log_format: the --format argument
         @param shortstat: whether to add the summary of changes
-        @param by_day: whether to add each commit's day (OUT-7); replaces log_format
         @returns: the command as a list of arguments, ready for subprocess
         """
-        if by_day:
-            log_format = DAY_LOG_FORMAT
         # --full-history stops git from hiding commits while simplifying the
         # history for the path filter below; merges are counted separately
         cmd = [
@@ -158,7 +155,7 @@ class GitLogsParser:
             "--no-merges",
             *(["--shortstat"] if shortstat else []),
             log_format,
-            *([DAY_DATE_ARG] if by_day else []),
+            *([DAY_DATE_ARG] if log_format == DAY_LOG_FORMAT else []),
             *self.date_range_args(),
             "--",
             ".",
@@ -181,7 +178,7 @@ class GitLogsParser:
                 pathspecs.append(f":(exclude,glob)**/{pattern}/**")
         return pathspecs
 
-    def merge_log_command(self, by_day=False):
+    def merge_log_command(self, log_format=LOG_FORMAT):
         """
         Build the git log command that lists the merge commits made directly on
         the analyzed branch in the date range, with their authors.
@@ -189,7 +186,8 @@ class GitLogsParser:
         branch to update it) are not on the branch's first-parent line, so they
         are left out. File exclusions do not apply: a merge brings in a branch,
         whichever files it touches.
-        @param by_day: whether to add each merge's day (OUT-7)
+        @param log_format: the --format argument; DAY_LOG_FORMAT adds each
+            merge's day (OUT-7)
         @returns: the command as a list of arguments, ready for subprocess
         """
         return [
@@ -197,7 +195,8 @@ class GitLogsParser:
             "log",
             "--first-parent",
             "--merges",
-            *([DAY_LOG_FORMAT, DAY_DATE_ARG] if by_day else [LOG_FORMAT]),
+            log_format,
+            *([DAY_DATE_ARG] if log_format == DAY_LOG_FORMAT else []),
             *self.date_range_args(),
         ]
 
@@ -293,20 +292,30 @@ class GitLogsParser:
         @param extra_days: days (mm/dd/yyyy) to report even without git
             activity, e.g. days with GitHub activity
         @returns: {day: contribution stats of all users on that day, as parse()
-            returns them}, for every day with a commit or merge and every extra day
+            returns them}, for every day with a commit or merge and every extra
+            day, in date order
         """
-        commits = self.run_git_log(self.git_log_command(by_day=True))
-        merges = self.run_git_log(self.merge_log_command(by_day=True))
-        days = {c["day"] for c in commits + merges} | set(extra_days)
+        commits = self.run_git_log(self.git_log_command(DAY_LOG_FORMAT))
+        merges = self.run_git_log(self.merge_log_command(DAY_LOG_FORMAT))
+        days = {day: ([], []) for day in extra_days}
+        for commit in commits:
+            days.setdefault(commit["day"], ([], []))[0].append(commit)
+        for merge in merges:
+            days.setdefault(merge["day"], ([], []))[1].append(merge)
         contributors = self.contributors()  # once, not once per day
-        return {
-            day: self.tally(
-                [c for c in commits if c["day"] == day],
-                [m for m in merges if m["day"] == day],
-                contributors,
-            )
-            for day in sorted(days)
-        }
+        order = sorted(days, key=lambda d: datetime.datetime.strptime(d, "%m/%d/%Y"))
+        return {day: self.tally(*days[day], contributors) for day in order}
+
+    def day_rows(self):
+        """
+        OUT-7: the rows of parse_days as one list, each with its "date".
+        @returns: a list of row dictionaries
+        """
+        return [
+            dict(row, date=day)
+            for day, rows in self.parse_days().items()
+            for row in rows
+        ]
 
     def contributors(self):
         """

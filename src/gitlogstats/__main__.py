@@ -261,11 +261,9 @@ def main():
                     last_parser, repo_url, last_parser.get_identities(), args
                 )
             else:
-                rows = [
-                    dict(row, date=day)
-                    for day, day_rows in last_parser.parse_days().items()
-                    for row in day_rows
-                ]
+                rows = last_parser.day_rows()
+            # an idle contributor adds nothing to a day; keep memory small
+            rows = [row for row in rows if aggregate.is_active(row)]
         else:
             rows = last_parser.parse()
             if args.github:
