@@ -29,7 +29,7 @@ The command `gitlogstats --help` shows the usage instructions:
 ```
 usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START]
                    [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}]
-                   [-b BRANCH] [-v] [-c] [-a {developer,repository}]
+                   [-b BRANCH] [-v] [-c] [-a {developer,repository,day}]
                    [--github] [--clobber]
 
 options:
@@ -55,10 +55,11 @@ options:
                         The branch to parse, if not the default branch
   -v, --verbose         Whether to output debugging info
   -c, --clean           Remove contributors without any contribuition
-  -a {developer,repository}, --aggregate {developer,repository}
+  -a {developer,repository,day}, --aggregate {developer,repository,day}
                         Combine the results into one row per developer, summed
-                        over all repositories, or one row per repository,
-                        summed over its contributors
+                        over all repositories, one row per repository, summed
+                        over its contributors, or one row per day with
+                        activity, summed over everyone
   --github              Also report GitHub pull requests opened, merged,
                         closed and self-merged per contributor, with their git
                         and GitHub emails, their pushes to the analyzed branch
@@ -158,6 +159,16 @@ gitlogstats -rf repos.txt -a repository
 ```
 
 Developer rows have no `repository` column; instead a `repositories` column counts the repositories the developer was active in during the date range. Repository rows have no username or email columns; a `contributors` column counts the contributors who were active in the repository during the date range. `-u` and `-c` are applied first, so `-u alice -a repository` shows Alice's share of each repository. With `--github`, a developer's rows are combined by GitHub username, so different git names linked to one GitHub account become one row, and their email addresses are listed together. A developer matched to a GitHub account in one repository but not in another (for example a repository not on GitHub) keeps a separate row for each.
+
+### Activity per day
+
+Add `-a day` to get one row per day on which anything happened, summed over every contributor and repository, in date order:
+
+```
+gitlogstats -rf repos.txt -a day
+```
+
+The columns are `date`, the usual counts, `repositories` (how many repositories had activity that day) and `contributors` (how many developers were active that day; someone active in several repositories counts once). Every event is counted on its own day in local time: commits and merges on their commit date and, with `--github`, pull requests on the day they were opened, merged or closed and pushes on the day they were pushed. The days therefore add up to the totals printed without `-a`. Days without activity are left out. Combine with `-u` to see one contributor's days.
 
 ### Cloned repositories
 

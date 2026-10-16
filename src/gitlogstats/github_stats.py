@@ -19,9 +19,11 @@ from .github import (
     count_pull_requests,
     count_pushes,
     count_web_commits,
+    event_days,
     fetch_pull_requests,
     fetch_pushes,
     github_repo_from_url,
+    local_day,
     user_profile,
 )
 from .identity import consolidate, match_identities, unavailable_row
@@ -41,39 +43,30 @@ def warn(repo_url, reason):
     )
 
 
-def combine(parser, rows, identities, github_repo, args):
+def fetch(parser, identities, github_repo, args):
     """
-    STAT-8 to STAT-11, STAT-14, STAT-15: fetch the repository's pull requests
-    and pushes, match GitHub users to git authors and merge their rows.
+    STAT-8 to STAT-11, STAT-14, STAT-15: fetch the repository's pull requests,
+    pushes and website-commit candidates, and match GitHub users to git authors.
+    Nothing is counted yet, so the result serves any date range (OUT-7).
     @param parser: the GitLogsParser of the repository (for verbose output)
-    @param rows: git rows from parser.parse(), unfiltered
     @param identities: {author_name: {email: commit hash}} from get_identities
     @param github_repo: "owner/repo"
-    @param args: the parsed command-line arguments (start, end, branch)
-    @returns: (combined rows, {author_name: (login, tier)})
+    @param args: the parsed command-line arguments (branch)
+    @returns: a dict with prs, pushes, commits (committed_commits), matches
+        ({author_name: (login, tier)}) and github_emails ({login: email})
     @raises GitHubError: if GitHub cannot be read for this repository
     """
     api_calls = 3  # the pull request, contributor and activity lists
     prs = fetch_pull_requests(github_repo)
-    pr_counts = count_pull_requests(prs, args.start, args.end, args.branch)
 
     # STAT-14: pushes to the branch that was actually analyzed; a detached
     # HEAD is no branch, so nothing was pushed to it
     branch = parser.current_branch()
     if branch is None:
         api_calls -= 1
-        pushes = {}
+        pushes = []
     else:
-        pushes = count_pushes(fetch_pushes(github_repo, branch), args.start, args.end)
-    known = {login.casefold(): login for login in pr_counts}
-    for login, number in pushes.items():
-        key = known.setdefault(login.casefold(), login)
-        found = pr_counts.setdefault(key, {})
-        found["pushes_to_default"] = found.get("pushes_to_default", 0) + number
-
-    # STAT-15: commits GitHub created itself, apart from pull request merges
-    web_commits = count_web_commits(parser.committed_commits(), prs)
-    rows = [dict(row, web_commits=web_commits.get(row["username"], 0)) for row in rows]
+        pushes = fetch_pushes(github_repo, branch)
 
     logins = {pr["login"] for pr in prs} | contributor_logins(github_repo)
     candidates = {}
@@ -127,18 +120,71 @@ def combine(parser, rows, identities, github_repo, args):
             if "(HTTP 404)" not in str(exc):
                 raise
     parser.verboseprint(f"GitHub API calls: {api_calls}")
+    return {
+        "prs": prs,
+        "pushes": pushes,
+        "commits": parser.committed_commits(),
+        "matches": matches,
+        "github_emails": github_emails,
+    }
+
+
+def tally(parser, rows, data, identities, start, end, args, commits=None):
+    """
+    Count the fetched GitHub activity in a date range and merge it into the
+    git rows of the same range.
+    @param parser: the GitLogsParser of the repository
+    @param rows: git rows for the range, unfiltered
+    @param data: the result of fetch
+    @param identities: {author_name: {email: commit hash}} from get_identities
+    @param start: first day, mm/dd/yyyy
+    @param end: last day, mm/dd/yyyy
+    @param args: the parsed command-line arguments (branch)
+    @param commits: the website-commit candidates of the range; defaults to
+        all of data["commits"] (the whole -s/-e range)
+    @returns: the combined rows
+    """
+    pr_counts = count_pull_requests(data["prs"], start, end, args.branch)
+    pushes = count_pushes(data["pushes"], start, end)
+    known = {login.casefold(): login for login in pr_counts}
+    for login, number in pushes.items():
+        key = known.setdefault(login.casefold(), login)
+        found = pr_counts.setdefault(key, {})
+        found["pushes_to_default"] = found.get("pushes_to_default", 0) + number
+
+    # STAT-15: commits GitHub created itself, apart from pull request merges
+    commits = data["commits"] if commits is None else commits
+    web_commits = count_web_commits(commits, data["prs"])
+    rows = [dict(row, web_commits=web_commits.get(row["username"], 0)) for row in rows]
+
     repository = GitLogsParser.repo_name_from_url(parser.repository)
-    combined = consolidate(
+    return consolidate(
         rows,
-        matches,
+        data["matches"],
         pr_counts,
         repository,
-        args.start,
-        args.end,
+        start,
+        end,
         identities,
-        github_emails,
+        data["github_emails"],
     )
-    return combined, matches
+
+
+def combine(parser, rows, identities, github_repo, args):
+    """
+    STAT-8 to STAT-11, STAT-14, STAT-15: fetch the repository's pull requests
+    and pushes, match GitHub users to git authors and merge their rows.
+    @param parser: the GitLogsParser of the repository (for verbose output)
+    @param rows: git rows from parser.parse(), unfiltered
+    @param identities: {author_name: {email: commit hash}} from get_identities
+    @param github_repo: "owner/repo"
+    @param args: the parsed command-line arguments (start, end, branch)
+    @returns: (combined rows, {author_name: (login, tier)})
+    @raises GitHubError: if GitHub cannot be read for this repository
+    """
+    data = fetch(parser, identities, github_repo, args)
+    combined = tally(parser, rows, data, identities, args.start, args.end, args)
+    return combined, data["matches"]
 
 
 def member_names(row, matches):
@@ -194,8 +240,56 @@ def github_rows(parser, rows, repo_url, identities, args):
             unavailable_row(row, identities.get(row["username"], ())) for row in rows
         ]
 
+    return select(result, args, matches, identities)
+
+
+def github_day_rows(parser, repo_url, identities, args):
+    """
+    OUT-7: like github_rows, one day at a time. GitHub is read once; each
+    event is counted on its own local day.
+    @param parser: the GitLogsParser of the repository
+    @param repo_url: the repository as given on the command line
+    @param identities: {author_name: {email: commit hash}} from get_identities
+    @param args: the parsed command-line arguments
+    @returns: the final rows for this repository, each with a "date" key
+    """
+    matches = {}
+    github_repo = github_repo_from_url(repo_url)
+    result = []
+    try:
+        if github_repo is None:
+            raise GitHubError("not a github.com repository")
+        data = fetch(parser, identities, github_repo, args)
+    except GitHubError as exc:
+        warn(repo_url, exc)
+        for day, rows in parser.parse_days().items():
+            for row in rows:
+                emails = identities.get(row["username"], ())
+                result.append(dict(unavailable_row(row, emails), date=day))
+    else:
+        matches = data["matches"]
+        extra = event_days(data["prs"], data["pushes"], args.start, args.end)
+        web = {}
+        for commit in data["commits"]:
+            web.setdefault(local_day(commit["committed"]), []).append(commit)
+        for day, rows in parser.parse_days(extra).items():
+            commits = web.get(day, [])
+            for row in tally(parser, rows, data, identities, day, day, args, commits):
+                result.append(dict(row, date=day))
+    return select(result, args, matches, identities)
+
+
+def select(rows, args, matches, identities):
+    """
+    Apply -u and -c to combined rows (CLI-3).
+    @param rows: rows from tally or unavailable_row
+    @param args: the parsed command-line arguments (user, clean)
+    @param matches: {author_name: (login, tier)}
+    @param identities: {author_name: {email: commit hash}} from get_identities
+    @returns: the rows that -u and -c keep
+    """
     if args.user:
-        result = [r for r in result if keep_user(r, args.user, matches, identities)]
+        rows = [r for r in rows if keep_user(r, args.user, matches, identities)]
     if args.clean:
-        result = [r for r in result if any(r[f] for f in ACTIVITY_FIELDS)]
-    return result
+        rows = [r for r in rows if any(r[f] for f in ACTIVITY_FIELDS)]
+    return rows

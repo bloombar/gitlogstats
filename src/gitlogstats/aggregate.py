@@ -1,8 +1,10 @@
-"""Combine result rows by developer or by repository (OUT-6).
+"""Combine result rows by developer or by repository (OUT-6), or by day (OUT-7).
 
 Everything here is pure logic over the rows the rest of the tool produces: no
 git, no network. Each aggregated row sums the counts of the rows it combines.
 """
+
+import datetime
 
 from gitlogstats.git_logs_parser import FIELDNAMES
 from gitlogstats.github import (
@@ -14,12 +16,13 @@ from gitlogstats.identity import join_emails
 
 DEVELOPER = "developer"
 REPOSITORY = "repository"
-MODES = [DEVELOPER, REPOSITORY]
+DAY = "day"
+MODES = [DEVELOPER, REPOSITORY, DAY]
 
-# the git counts (commits to merges), summed in both modes
+# the git counts (commits to merges), summed in every mode
 GIT_COUNTS = FIELDNAMES[4:]
 
-# the GitHub pull-request counts (CLI-3), summed in both modes
+# the GitHub pull-request counts (CLI-3), summed in every mode
 PR_COUNTS = GITHUB_FIELDNAMES[1:]
 
 # every count; a row with any of them non-zero is active, as for -c (FILT-4)
@@ -29,7 +32,7 @@ ALL_COUNTS = GIT_COUNTS + PR_COUNTS + ACTIVITY_FIELDNAMES
 def fieldnames(mode, github):
     """
     The output columns of an aggregated table, in order.
-    @param mode: DEVELOPER or REPOSITORY
+    @param mode: DEVELOPER, REPOSITORY or DAY
     @param github: whether the GitHub columns are reported (--github)
     @returns: a list of column names
     """
@@ -39,6 +42,10 @@ def fieldnames(mode, github):
         if github:
             columns += ["github_username"] + PR_COUNTS + EMAIL_FIELDNAMES
             columns += ACTIVITY_FIELDNAMES
+    elif mode == DAY:
+        columns = ["date"] + GIT_COUNTS + ["repositories", "contributors"]
+        if github:
+            columns += PR_COUNTS + ACTIVITY_FIELDNAMES
     else:
         columns = ["repository"] + dates + GIT_COUNTS + ["contributors"]
         if github:
@@ -126,7 +133,7 @@ def merge_emails(values):
 def combine(rows, columns):
     """
     Build the aggregated row of one group.
-    @param rows: the rows of one developer or one repository
+    @param rows: the rows of one developer, repository or day
     @param columns: the output columns, from fieldnames()
     @returns: one row with those columns
     """
@@ -135,12 +142,12 @@ def combine(rows, columns):
     for field in columns:
         if field == "username":
             out[field] = main_username(rows)
-        elif field in ("repository", "start_date", "end_date"):
+        elif field in ("repository", "start_date", "end_date", "date"):
             out[field] = rows[0][field]
         elif field == "repositories":
             out[field] = len({row["repository"] for row in active})
         elif field == "contributors":
-            out[field] = len(active)
+            out[field] = len({developer_key(row) for row in active})
         elif field == "github_username":
             out[field] = first_text(row[field] for row in rows)
         elif field in EMAIL_FIELDNAMES:
@@ -152,22 +159,33 @@ def combine(rows, columns):
 
 def aggregate(rows, mode, github):
     """
-    Combine result rows into one row per developer or one row per repository,
-    sorted by username (or GitHub username, for a developer with no git
-    username) or by repository, ignoring case.
-    @param rows: result rows of every repository, after -u and -c
-    @param mode: DEVELOPER or REPOSITORY
+    Combine result rows into one row per developer, repository or day. Rows
+    are sorted by username (or GitHub username, for a developer with no git
+    username) or by repository, ignoring case, or by date. Days only count
+    active rows, so a day without activity is left out (OUT-7).
+    @param rows: result rows of every repository, after -u and -c; in DAY
+        mode, rows for single days, each with a "date" key
+    @param mode: DEVELOPER, REPOSITORY or DAY
     @param github: whether the rows carry the GitHub columns (--github)
     @returns: the aggregated rows, sorted
     """
     groups = {}
     for row in rows:
-        key = developer_key(row) if mode == DEVELOPER else row["repository"]
+        if mode == DEVELOPER:
+            key = developer_key(row)
+        elif mode == REPOSITORY:
+            key = row["repository"]
+        elif is_active(row):
+            key = row["date"]
+        else:
+            continue
         groups.setdefault(key, []).append(row)
     columns = fieldnames(mode, github)
     combined = [combine(group, columns) for group in groups.values()]
 
     def sort_key(row):
+        if mode == DAY:
+            return (datetime.datetime.strptime(row["date"], "%m/%d/%Y"), "")
         if mode == DEVELOPER:
             name = row["username"] or row.get("github_username") or ""
         else:

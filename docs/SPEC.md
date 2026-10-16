@@ -218,7 +218,7 @@ In both modes every count is the sum of the combined rows, so each total equals 
 
 Each event is counted on the day it happened, in local time, the same way FILT-1 limits the date range: a commit, merge or website commit on its commit date; a pull request as opened on the day it was created, as merged (and self-merged) on the day it was merged, and as closed without merging on the day it was closed; a push on the day it was pushed. So the day totals add up to the totals printed without `-a`. Days without any activity are left out. `-u` limits the counts to that contributor (as in CLI-3 with `--github`); `-c` changes nothing, since inactive contributors add nothing to a day. A GitHub count is empty (`null` in JSON) only when no repository with activity that day could be asked about (CLI-3). The columns are printed in the CSV header even when there are no rows.
 
-**Status:** Todo
+**Status:** Done
 
 ### 5. Command-Line Interface
 
