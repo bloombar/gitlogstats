@@ -17,7 +17,7 @@ import pytest
 
 from fake_gh import install_fake_gh
 from gitlogstats import GitLogsParser
-from gitlogstats.__main__ import main
+from gitlogstats.__main__ import distinct_labels, main
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -422,8 +422,8 @@ class TestCommandLine:
             rows[0]
             == "username,repository,start_date,end_date,commits,insertions,deletions,files,merges"
         )
-        assert "Alice,one,01/01/2024,12/31/2024,1,3,0,1,0" in rows
-        assert "Bob,one,01/01/2024,12/31/2024,1,1,0,1,0" in rows
+        assert "Alice,remotes/one,01/01/2024,12/31/2024,1,3,0,1,0" in rows
+        assert "Bob,remotes/one,01/01/2024,12/31/2024,1,1,0,1,0" in rows
 
     def test_repofile_json_is_one_array(self, remotes, tmp_path, monkeypatch, capsys):
         repofile = tmp_path / "repos.txt"
@@ -440,9 +440,9 @@ class TestCommandLine:
         )
         parsed = json.loads(out)
         assert {(e["repository"], e["username"], e["commits"]) for e in parsed} == {
-            ("one", "Alice", 1),
-            ("one", "Bob", 1),
-            ("two.repo", "Alice", 1),
+            ("remotes/one", "Alice", 1),
+            ("remotes/one", "Bob", 1),
+            ("remotes/two.repo", "Alice", 1),
         }
 
     def test_repofile_csv_has_a_single_header(
@@ -471,7 +471,7 @@ class TestCommandLine:
             *self.dates(),
         )
         rows = [l for l in out.splitlines() if l]
-        assert len(rows) == 3 and "| Bob | one |" in rows[2]
+        assert len(rows) == 3 and "| Bob | remotes/one |" in rows[2]
 
     def test_zero_activity_contributors_kept_by_default_and_removed_with_clean(
         self, remotes, tmp_path, monkeypatch, capsys
@@ -593,8 +593,8 @@ class TestSameNameRepositories:
         repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n")
         rows = self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile))
         assert self.merges(rows) == {
-            ("proj", "Alice"): (2, 1),
-            ("proj", "Bob"): (3, 2),
+            ("alice/proj", "Alice"): (2, 1),
+            ("bob/proj", "Bob"): (3, 2),
         }
         assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2"]
 
@@ -604,10 +604,10 @@ class TestSameNameRepositories:
         alice, bob = forks
         assert self.merges(
             self.run(monkeypatch, capsys, tmp_path, "-r", alice.path)
-        ) == {("proj", "Alice"): (2, 1)}
+        ) == {("alice/proj", "Alice"): (2, 1)}
         # a cached clone of alice/proj must not stand in for bob/proj
         assert self.merges(self.run(monkeypatch, capsys, tmp_path, "-r", bob.path)) == {
-            ("proj", "Bob"): (3, 2)
+            ("bob/proj", "Bob"): (3, 2)
         }
         # new work reaches each clone, and no third folder is made
         bob.write("b.txt", lines(9))
@@ -615,10 +615,10 @@ class TestSameNameRepositories:
         for _ in range(2):
             assert self.merges(
                 self.run(monkeypatch, capsys, tmp_path, "-r", bob.path + "/")
-            ) == {("proj", "Bob"): (4, 2)}
+            ) == {("bob/proj", "Bob"): (4, 2)}
             assert self.merges(
                 self.run(monkeypatch, capsys, tmp_path, "-r", alice.path)
-            ) == {("proj", "Alice"): (2, 1)}
+            ) == {("alice/proj", "Alice"): (2, 1)}
         assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2"]
 
     def test_a_folder_that_is_not_a_clone_is_left_alone(
@@ -628,7 +628,7 @@ class TestSameNameRepositories:
         stray.mkdir(parents=True)
         (stray / "notes.txt").write_text("mine")
         rows = self.run(monkeypatch, capsys, tmp_path, "-r", forks[1].path)
-        assert self.merges(rows) == {("proj", "Bob"): (3, 2)}
+        assert self.merges(rows) == {("bob/proj", "Bob"): (3, 2)}
         assert os.listdir(stray) == ["notes.txt"]
         assert (tmp_path / "repos" / "proj-2" / ".git").is_dir()
 
@@ -637,7 +637,7 @@ class TestSameNameRepositories:
     ):
         Repo(tmp_path / "repos" / "proj")  # a repository, but cloned from nowhere
         rows = self.run(monkeypatch, capsys, tmp_path, "-r", forks[0].path)
-        assert self.merges(rows) == {("proj", "Alice"): (2, 1)}
+        assert self.merges(rows) == {("alice/proj", "Alice"): (2, 1)}
         assert (tmp_path / "repos" / "proj-2" / ".git").is_dir()
 
     def test_a_repository_named_like_a_numbered_folder(
@@ -650,9 +650,9 @@ class TestSameNameRepositories:
         repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n{carol.path}\n")
         rows = self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile))
         assert self.merges(rows) == {
-            ("proj", "Alice"): (2, 1),
-            ("proj", "Bob"): (3, 2),
-            ("proj-2", "Carol"): (1, 0),
+            ("alice/proj", "Alice"): (2, 1),
+            ("bob/proj", "Bob"): (3, 2),
+            ("carol/proj-2", "Carol"): (1, 0),
         }
         assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2", "proj-2-2"]
 
@@ -661,6 +661,121 @@ class TestSameNameRepositories:
         repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n")
         self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile), "--clobber")
         assert not (tmp_path / "repos").exists()
+
+
+class TestRepositoryLabels:
+    """OUT-8: every repository is labelled owner/name, and never shares a label."""
+
+    def make(self, path, author="Dana"):
+        """A repository with one commit by *author* on 03/10/2024."""
+        repo = Repo(path)
+        repo.write("a.txt", lines(1))
+        repo.commit(author, "start")
+        return repo
+
+    def run(self, monkeypatch, capsys, tmp_path, urls, *argv):
+        """Run the command over *urls* (a repository file); returns the rows."""
+        repofile = tmp_path / "list.txt"
+        repofile.write_text("".join(f"{url}\n" for url in urls))
+        monkeypatch.chdir(tmp_path)
+        argv = ["-rf", str(repofile), *argv, "-f", "json"]
+        argv += ["-s", "01/01/2024", "-e", "12/31/2024"]
+        monkeypatch.setattr(sys, "argv", ["gitlogstats", *argv])
+        main()
+        return json.loads(capsys.readouterr().out)
+
+    def test_forks_are_counted_apart_in_every_mode(self, tmp_path, monkeypatch, capsys):
+        urls = [
+            self.make(tmp_path / "alice" / "proj").path,
+            self.make(tmp_path / "bob" / "proj").path,
+        ]
+        rows = self.run(monkeypatch, capsys, tmp_path, urls)
+        assert [(r["repository"], r["commits"]) for r in rows] == [
+            ("alice/proj", 1),
+            ("bob/proj", 1),
+        ]
+        rows = self.run(monkeypatch, capsys, tmp_path, urls, "-a", "repository")
+        assert [(r["repository"], r["commits"], r["contributors"]) for r in rows] == [
+            ("alice/proj", 1, 1),
+            ("bob/proj", 1, 1),
+        ]
+        rows = self.run(monkeypatch, capsys, tmp_path, urls, "-a", "developer")
+        assert [(r["username"], r["commits"], r["repositories"]) for r in rows] == [
+            ("Dana", 2, 2)
+        ]
+        rows = self.run(monkeypatch, capsys, tmp_path, urls, "-a", "day")
+        assert [(r["date"], r["commits"], r["repositories"]) for r in rows] == [
+            ("03/10/2024", 2, 2)
+        ]
+
+    def test_clashing_labels_fall_back_to_the_urls(self, tmp_path, monkeypatch, capsys):
+        first = self.make(tmp_path / "one" / "alice" / "proj").path
+        second = self.make(tmp_path / "two" / "alice" / "proj").path
+        other = self.make(tmp_path / "remotes" / "solo").path
+        rows = self.run(monkeypatch, capsys, tmp_path, [first, second, other])
+        assert [r["repository"] for r in rows] == [first, second, "remotes/solo"]
+        rows = self.run(
+            monkeypatch, capsys, tmp_path, [first, second], "-a", "repository"
+        )
+        assert [r["repository"] for r in rows] == sorted([first, second])
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["-u", "Eve", "-c"], ["-u", "Eve", "-c", "-a", "repository"]],
+    )
+    def test_a_clash_is_found_when_one_side_has_no_rows_left(
+        self, tmp_path, monkeypatch, capsys, argv
+    ):
+        first = self.make(tmp_path / "one" / "alice" / "proj").path
+        second = self.make(tmp_path / "two" / "alice" / "proj", author="Eve").path
+        rows = self.run(monkeypatch, capsys, tmp_path, [first, second], *argv)
+        assert [r["repository"] for r in rows] == [second]
+
+    @pytest.mark.parametrize(
+        "url, shown",
+        [
+            ("https://u:t0ken@github.com/alice/proj", "https://github.com/alice/proj"),
+            ("https://u@host:8443/a/proj.git", "https://host:8443/a/proj.git"),
+            ("https://github.com/alice/proj", "https://github.com/alice/proj"),
+            ("git@github.com:alice/proj.git", "git@github.com:alice/proj.git"),
+            ("/srv/alice/proj", "/srv/alice/proj"),
+        ],
+    )
+    def test_a_url_shown_in_place_of_a_label_has_no_credentials(self, url, shown):
+        rows = [{"repository": "alice/proj"}]
+        other = [{"repository": "alice/proj"}]
+        distinct_labels(
+            [
+                (url, "/r/proj", "alice/proj", rows),
+                ("x", "/r/proj-2", "alice/proj", other),
+            ]
+        )
+        assert rows[0]["repository"] == shown
+
+    def test_one_repository_listed_twice_keeps_its_label(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        url = self.make(tmp_path / "alice" / "proj").path
+        rows = self.run(monkeypatch, capsys, tmp_path, [url, url])
+        assert [r["repository"] for r in rows] == ["alice/proj", "alice/proj"]
+
+    def test_github_rows_use_the_owner_from_the_url(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        widgets = self.make(tmp_path / "remotes" / "widgets", author="Alice")
+        github_world(tmp_path, monkeypatch, widgets, prs=[pr("zed", at(2024, 3, 1))])
+        out, _ = run_github(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            "-r",
+            GITHUB_URL,
+            "--github",
+            *DATES,
+            "-f",
+            "json",
+        )
+        assert {r["repository"] for r in json.loads(out)} == {"acme/widgets"}
 
 
 class TestSameNameReuse:
@@ -752,17 +867,17 @@ class TestOutputFormat:
         out = self.run(monkeypatch, capsys, tmp_path, "-r", remotes[0].path)
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
-            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
-            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
+            '"Dana ""DJ"" Jones",remotes/alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
+            '"Smith, Jo",remotes/alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
         )
 
     def test_multiple_repositories_csv(self, remotes, tmp_path, monkeypatch, capsys):
         out = self.run(monkeypatch, capsys, tmp_path, "-rf", str(remotes[2]))
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
-            '"Dana ""DJ"" Jones",alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
-            '"Smith, Jo",alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
-            '"Smith, Jo",beta.repo,01/01/2024,12/31/2024,1,4,0,1,0\n'
+            '"Dana ""DJ"" Jones",remotes/alpha,01/01/2024,12/31/2024,1,2,0,1,0\n'
+            '"Smith, Jo",remotes/alpha,01/01/2024,12/31/2024,1,3,0,1,0\n'
+            '"Smith, Jo",remotes/beta.repo,01/01/2024,12/31/2024,1,4,0,1,0\n'
         )
 
     def test_empty_csv_is_header_only(self, remotes, tmp_path, monkeypatch, capsys):
@@ -782,9 +897,9 @@ class TestOutputFormat:
         assert all(list(d) == self.FIELDS for d in data)
         assert all(type(d[k]) is int for d in data for k in self.FIELDS[4:])
         assert [(d["username"], d["repository"], d["insertions"]) for d in data] == [
-            ('Dana "DJ" Jones', "alpha", 2),
-            ("Smith, Jo", "alpha", 3),
-        ] + ([("Smith, Jo", "beta.repo", 4)] if multi else [])
+            ('Dana "DJ" Jones', "remotes/alpha", 2),
+            ("Smith, Jo", "remotes/alpha", 3),
+        ] + ([("Smith, Jo", "remotes/beta.repo", 4)] if multi else [])
 
     def test_empty_json_is_empty_array(self, remotes, tmp_path, monkeypatch, capsys):
         out = self.run(
@@ -1406,7 +1521,7 @@ class TestGitHub:
         assert rows_of(out) == [("Eve", "", 1, 0, 0, 0, 0), ("", "zed", 0, 1, 1, 0, 0)]
         zed = data[1]
         assert (zed["repository"], zed["start_date"], zed["end_date"]) == (
-            "widgets",
+            "acme/widgets",
             "01/01/2024",
             "12/31/2024",
         )
@@ -1646,7 +1761,7 @@ class TestGitHub:
             "username,repository,start_date,end_date,commits,insertions,deletions,"
             "files,merges,github_username,prs_opened,prs_merged,prs_closed_unmerged,prs_self_merged,git_email,github_email,"
             "pushes_to_default,web_commits\n"
-            "Bob,widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0,0,bob@example.com,,0,0\n"
+            "Bob,acme/widgets,01/01/2024,12/31/2024,1,2,0,1,0,bobby,0,1,0,0,bob@example.com,,0,0\n"
         )
         out, _ = self.github(
             monkeypatch, capsys, tmp_path, "-u", "Bob", "-f", "markdown"
@@ -1857,7 +1972,7 @@ class TestGitHub:
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,"
             "files,merges\n"
-            "Alice,widgets,01/01/2024,12/31/2024,1,1,0,1,0\n"
+            "Alice,acme/widgets,01/01/2024,12/31/2024,1,1,0,1,0\n"
         )
 
     # --- repositories GitHub cannot be asked about
@@ -1882,7 +1997,7 @@ class TestGitHub:
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv)
         assert (
             out.splitlines()[1]
-            == "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,,,alice@example.com,,,"
+            == "Alice,remotes/widgets,01/01/2024,12/31/2024,1,3,0,1,0,,,,,,alice@example.com,,,"
         )
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-f", "markdown")
         assert out.splitlines()[2].endswith(
@@ -1914,8 +2029,8 @@ class TestGitHub:
         assert f"no GitHub statistics for {other.path}: not a github.com" in err
         data = json.loads(out)
         assert [(r["username"], r["repository"], r["commits"]) for r in data] == [
-            ("Alice", "widgets", 1),
-            ("Bob", "other", 1),
+            ("Alice", "acme/widgets", 1),
+            ("Bob", "remotes/other", 1),
         ]
         assert all(
             r[c] is None for r in data for c in GITHUB_COLUMNS + ACTIVITY_COLUMNS
@@ -2365,7 +2480,7 @@ class TestGitHub:
         out, err = run_github(monkeypatch, capsys, tmp_path, "-r", GITHUB_URL, *DATES)
         assert out == (
             "username,repository,start_date,end_date,commits,insertions,deletions,files,merges\n"
-            "Alice,widgets,01/01/2024,12/31/2024,1,3,0,1,0\n"
+            "Alice,acme/widgets,01/01/2024,12/31/2024,1,3,0,1,0\n"
         )
         assert err == "" and "github" not in out
         assert calls() == []
@@ -2473,8 +2588,8 @@ class TestAggregate:
         )
         rows = json.loads(out)
         assert [(r["repository"], r["contributors"]) for r in rows] == [
-            ("one", 2),
-            ("two", 1),  # Carol is listed (no -c) but inactive
+            ("remotes/one", 2),
+            ("remotes/two", 1),  # Carol is listed (no -c) but inactive
         ]
         sums = totals(plain, "repository")
         for row in rows:
@@ -2506,7 +2621,7 @@ class TestAggregate:
         )
         assert (
             out.splitlines()[2]
-            == "| one | 01/01/2024 | 12/31/2024 | 3 | 10 | 2 | 4 | 1 | 2 |"
+            == "| remotes/one | 01/01/2024 | 12/31/2024 | 3 | 10 | 2 | 4 | 1 | 2 |"
         )
 
     def test_clean_applies_before_counting(
@@ -2524,8 +2639,8 @@ class TestAggregate:
             "repository",
         )
         assert [(r["repository"], r["contributors"]) for r in json.loads(out)] == [
-            ("one", 2),
-            ("two", 1),
+            ("remotes/one", 2),
+            ("remotes/two", 1),
         ]
         out = self.run(
             monkeypatch,
@@ -2551,7 +2666,7 @@ class TestAggregate:
         out = self.run(monkeypatch, capsys, tmp_path, repofile, *argv, "repository")
         assert [
             (r["repository"], r["commits"], r["contributors"]) for r in json.loads(out)
-        ] == [("one", 2, 1), ("two", 1, 1)]
+        ] == [("remotes/one", 2, 1), ("remotes/two", 1, 1)]
 
     @pytest.mark.parametrize(
         "mode, header",
@@ -2642,12 +2757,12 @@ class TestAggregate:
         out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "repository")
         rows = json.loads(out)
         assert [(r["repository"], r["contributors"], r["commits"]) for r in rows] == [
-            ("local", 2, 2),
-            ("widgets", 3, 2),
+            ("acme/widgets", 3, 2),
+            ("remotes/local", 2, 2),
         ]
-        assert [rows[1][c] for c in PR_COLUMNS] == [2, 1, 0, 0]
-        assert rows[1]["pushes_to_default"] == 1
-        assert all(rows[0][c] is None for c in PR_COLUMNS + ACTIVITY_COLUMNS)
+        assert [rows[0][c] for c in PR_COLUMNS] == [2, 1, 0, 0]
+        assert rows[0]["pushes_to_default"] == 1
+        assert all(rows[1][c] is None for c in PR_COLUMNS + ACTIVITY_COLUMNS)
         assert not {"username", "github_username", "git_email", "github_email"} & set(
             rows[0]
         )
