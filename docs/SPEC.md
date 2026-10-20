@@ -45,6 +45,12 @@ Repositories are cloned into a `repos/` directory under the current working dire
 
 **Status:** Done
 
+#### REPO-6 Repositories with the same name
+
+Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/project`, or two local paths ending in `project`) are each cloned and analyzed separately, never one in place of the other, in one run or across runs. A clone in `repos/` is reused only for the repository it was cloned from (its `origin` URL equals the URL given, exactly). The first repository with a name uses `repos/<name>` (REPO-3), so existing clones are still reused; a different repository with the same name uses the first free folder among `repos/<name>-2`, `repos/<name>-3`, and so on, checked the same way. The `repository` column still shows `<name>`.
+
+**Status:** Todo
+
 ### 2. Contribution Statistics
 
 #### STAT-1 Commit count
