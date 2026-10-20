@@ -226,6 +226,12 @@ Each event is counted on the day it happened, in local time, the same way FILT-1
 
 **Status:** Done
 
+#### OUT-8 Repository owner in the repository column
+
+The `repository` column names each repository as `<owner>/<name>`: `<name>` as `git clone` names its folder (REPO-3), and `<owner>` the path segment before it in the URL (`bloombar/gitlogstats` for `https://github.com/bloombar/gitlogstats.git` or `git@github.com:bloombar/gitlogstats.git`; `projects/myrepo` for the local path `/home/user/projects/myrepo`). A URL or path with no segment before the name (other than `.` or `..`) is labelled `<name>` alone. Two different repositories analyzed in one run never share a label: if they would (e.g. `https://github.com/alice/proj` and `https://gitlab.com/alice/proj`, or the same repository given as two different URLs), each of them is labelled with its URL exactly as given instead. Because every repository has its own label, `-a repository` gives each its own row, and the `repositories` counts of `-a developer` and `-a day` count each separately (OUT-6, OUT-7). The label is the same in every output format and with or without `--github`.
+
+**Status:** Todo
+
 ### 5. Command-Line Interface
 
 #### CLI-1 Help and usage
