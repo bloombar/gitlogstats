@@ -76,7 +76,7 @@ class TestCommand:
     ):
         run(monkeypatch, capsys, work, "-r", remotes[1].path)
         out, _ = run(monkeypatch, capsys, work, "-r", remotes[0].path, "--clobber")
-        assert "Alice,one," in out
+        assert "Alice,remotes/one," in out
         assert sorted(os.listdir(work / "repos")) == ["two.repo"]
 
     def test_repofile_with_two_repos_and_a_duplicate(
@@ -87,7 +87,7 @@ class TestCommand:
             f"{remotes[0].path}\n{remotes[1].path}\n{remotes[0].path}\n"
         )
         out, _ = run(monkeypatch, capsys, work, "-rf", str(repofile), "--clobber")
-        assert "Alice,one," in out and "Alice,two.repo," in out
+        assert "Alice,remotes/one," in out and "Alice,remotes/two.repo," in out
         assert os.listdir(work) == []
 
     def test_failure_before_output_deletes_nothing(

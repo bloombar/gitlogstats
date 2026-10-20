@@ -47,7 +47,7 @@ Repositories are cloned into a `repos/` directory under the current working dire
 
 #### REPO-6 Repositories with the same name
 
-Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/project`, or two local paths ending in `project`) are each cloned and analyzed separately, never one in place of the other, in one run or across runs. A clone in `repos/` is reused only for the repository it was cloned from (its `origin` URL equals the URL given, or, for a local path, leads to the same folder); a folder in `repos/` that is not a clone, or has no `origin`, is left untouched. The first repository with a name uses `repos/<name>` (REPO-3), so existing clones are still reused; a different repository with the same name uses the first free folder among `repos/<name>-2`, `repos/<name>-3`, and so on, checked the same way. The `repository` column still shows `<name>`.
+Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/project`, or two local paths ending in `project`) are each cloned and analyzed separately, never one in place of the other, in one run or across runs. A clone in `repos/` is reused only for the repository it was cloned from (its `origin` URL equals the URL given, or, for a local path, leads to the same folder); a folder in `repos/` that is not a clone, or has no `origin`, is left untouched. The first repository with a name uses `repos/<name>` (REPO-3), so existing clones are still reused; a different repository with the same name uses the first free folder among `repos/<name>-2`, `repos/<name>-3`, and so on, checked the same way. The `repository` column tells them apart by owner (OUT-8).
 
 **Status:** Done
 
@@ -228,9 +228,9 @@ Each event is counted on the day it happened, in local time, the same way FILT-1
 
 #### OUT-8 Repository owner in the repository column
 
-The `repository` column names each repository as `<owner>/<name>`: `<name>` as `git clone` names its folder (REPO-3), and `<owner>` the path segment before it in the URL (`bloombar/gitlogstats` for `https://github.com/bloombar/gitlogstats.git` or `git@github.com:bloombar/gitlogstats.git`; `projects/myrepo` for the local path `/home/user/projects/myrepo`). A URL or path with no segment before the name (other than `.` or `..`) is labelled `<name>` alone. Two different repositories analyzed in one run never share a label: if they would (e.g. `https://github.com/alice/proj` and `https://gitlab.com/alice/proj`, or the same repository given as two different URLs), each of them is labelled with its URL exactly as given instead. Because every repository has its own label, `-a repository` gives each its own row, and the `repositories` counts of `-a developer` and `-a day` count each separately (OUT-6, OUT-7). The label is the same in every output format and with or without `--github`.
+The `repository` column names each repository as `<owner>/<name>`: `<name>` as `git clone` names its folder (REPO-3), and `<owner>` the path segment before it in the URL, never its host or user name (`bloombar/gitlogstats` for `https://github.com/bloombar/gitlogstats.git` or `git@github.com:bloombar/gitlogstats.git`; `projects/myrepo` for the local path `/home/user/projects/myrepo`). A URL or path with no segment before the name (other than `.` or `..`) is labelled `<name>` alone. Two different repositories analyzed in one run never share a label: if they would (e.g. `https://github.com/alice/proj` and `https://gitlab.com/alice/proj`, or the same repository given as two different URLs), each of them is labelled with its URL as given instead, leaving out any user name and password (`https://user:token@host/...` is shown as `https://host/...`). Clashes are found among all the repositories analyzed, whichever rows `-u` and `-c` keep. Because every repository has its own label, `-a repository` gives each its own row, and the `repositories` counts of `-a developer` and `-a day` count each separately (OUT-6, OUT-7). The label is the same in every output format and with or without `--github`.
 
-**Status:** Todo
+**Status:** Done
 
 ### 5. Command-Line Interface
 

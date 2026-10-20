@@ -4,6 +4,7 @@ import argparse
 import datetime
 import re
 import sys
+import urllib.parse
 from . import GitLogsParser
 from . import aggregate
 from .clones import clone_dir_for, remove_clones
@@ -46,6 +47,42 @@ def default_branch():
     if result.returncode != 0:
         return None
     return result.stdout.strip().split("/", 1)[-1]  # 'origin/main' -> 'main'
+
+
+def url_without_credentials(url):
+    """
+    OUT-8: a repository URL safe to print: any user name and password
+    (https://user:token@host/...) are left out.
+    @param url: the repository as given on the command line
+    @returns: the URL without its user information, otherwise unchanged
+    """
+    if "://" not in url:
+        return url  # a local path, or user@host:path, which holds no secret
+    parts = urllib.parse.urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urllib.parse.urlunsplit(
+        parts._replace(netloc=parts.netloc.rpartition("@")[2])
+    )
+
+
+def distinct_labels(analyzed):
+    """
+    OUT-8: make sure two different repositories never share a repository
+    label. Clashes are found from every repository analyzed, whatever rows -u
+    and -c leave, and the rows of clashing repositories are relabelled with
+    their URL as given (without credentials). One repository listed twice is
+    still one repository (the same clone), so it keeps its label.
+    @param analyzed: a list of (URL, clone directory, label, rows), one per
+        repository analyzed; the rows are changed in place
+    """
+    clones_by_label = {}
+    for _url, repo_dir, label, _rows in analyzed:
+        clones_by_label.setdefault(label, set()).add(repo_dir)
+    for url, _repo_dir, label, rows in analyzed:
+        if len(clones_by_label[label]) > 1:
+            for row in rows:
+                row["repository"] = url_without_credentials(url)
 
 
 def main():
@@ -211,6 +248,7 @@ def main():
     all_results = []
     last_parser = None
     used_clones = []  # REPO-5: the clone directories this run cloned or pulled
+    analyzed = []  # OUT-8: (URL, clone directory, label, rows) of each repository
     for repo_url in repository_urls:
         os.chdir(repos_dir)  # start from the parent directory of all repos
 
@@ -247,7 +285,7 @@ def main():
         # with --github, -u and -c are applied after GitHub users are combined
         last_parser = GitLogsParser(
             repo=repo_dir,
-            name=repo_name,
+            name=GitLogsParser.repo_label_from_url(repo_url),  # OUT-8
             start=args.start,
             end=args.end,
             username=None if args.github else args.user,
@@ -272,6 +310,9 @@ def main():
                     last_parser, rows, repo_url, last_parser.get_identities(), args
                 )
         all_results.extend(rows)  # collect across repos
+        analyzed.append((repo_url, repo_dir, last_parser.repository_name(), rows))
+
+    distinct_labels(analyzed)
 
     # emit a single table (or JSON array) covering all repositories
     if last_parser is not None:
