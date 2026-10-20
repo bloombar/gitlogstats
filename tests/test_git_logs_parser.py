@@ -133,6 +133,31 @@ class TestRepoNameFromUrl:
         for path in ("/x/myrepo/.git", "/x/myrepo/.git/", "/x/myrepo//.git"):
             assert GitLogsParser.repo_name_from_url(path) == "myrepo"
 
+    @pytest.mark.parametrize(
+        "url, label",
+        [
+            ("https://github.com/bloombar/gitlogstats.git", "bloombar/gitlogstats"),
+            ("https://github.com/bloombar/gitlogstats/", "bloombar/gitlogstats"),
+            ("git@github.com:bloombar/gitlogstats.git", "bloombar/gitlogstats"),
+            ("ssh://git@github.com/bloombar/gitlogstats", "bloombar/gitlogstats"),
+            ("https://gitlab.com/group/sub/proj.git", "sub/proj"),
+            ("/home/user/projects/myrepo", "projects/myrepo"),
+            ("/home/user/projects/myrepo/.git", "projects/myrepo"),
+            ("myrepo", "myrepo"),
+            ("./myrepo", "myrepo"),
+            ("../../myrepo", "myrepo"),
+            ("/myrepo", "myrepo"),
+            ("https://example.com/proj.git", "proj"),
+            ("https://user:token@example.com/alice/proj", "alice/proj"),
+            ("git@example.com:proj.git", "proj"),
+            ("ssh://git@example.com:2222/alice/proj.git", "alice/proj"),
+            ("C:/work/alice/proj", "alice/proj"),
+        ],
+    )
+    def test_label_is_owner_and_name(self, url, label):
+        # OUT-8
+        assert GitLogsParser.repo_label_from_url(url) == label
+
     def test_underscore_in_name(self):
         assert (
             GitLogsParser.repo_name_from_url("https://github.com/user/my_repo.git")

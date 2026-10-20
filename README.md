@@ -77,7 +77,7 @@ In case `gitlogstats` is not found as a command, even after installing, try `pyt
 
 ### Single versus multiple repository analytics
 
-The `-r` and `-rf` flags control whether the script looks at a single repository, or a batch of repositories stored in a simple text file.
+The `-r` and `-rf` flags control whether the script looks at a single repository, or a batch of repositories stored in a simple text file. Each repository is named in the `repository` column by its owner and name, such as `bloombar/gitlogstats` (or the folder above it and its name, for a local path). Since version 1.8.0 this includes the owner, so forks with the same name are never mixed up; earlier versions showed the name alone. If two repositories in one run would still get the same label (for example `alice/proj` on both GitHub and GitLab), each is shown by its URL instead, without any password or token in it.
 
 Output the contributions of all developers to a single repository:
 
