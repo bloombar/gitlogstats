@@ -8,6 +8,7 @@ import csv
 import io
 import re
 import json
+import urllib.parse
 
 # Each commit's header in the git log output starts with this record separator,
 # followed by the hash, author name, and author email, separated by unit
@@ -481,6 +482,28 @@ class GitLogsParser:
         if self.name is not None:
             return self.name
         return self.repo_name_from_url(self.repository)
+
+    @staticmethod
+    def repo_label_from_url(repo_url):
+        """
+        OUT-8: label a repository as owner/name, e.g. 'bloombar/gitlogstats' for
+        'https://github.com/bloombar/gitlogstats.git' or 'projects/myrepo' for
+        '/home/user/projects/myrepo'.
+        The owner comes from the path only, never the host or user.
+        @param repo_url: the repository URL or path
+        @returns: owner/name, or the name alone if no segment comes before it
+        """
+        name = GitLogsParser.repo_name_from_url(repo_url)
+        path = repo_url.strip()
+        if "://" in path:
+            path = urllib.parse.urlsplit(path).path
+        elif re.match(r"^[^/]{2,}:", path):  # not a drive letter, as in C:/x
+            path = path.split(":", 1)[1]  # [user@]host:path, as git accepts
+        path = path.rstrip("/")
+        if path.endswith("/.git"):
+            path = path[: -len("/.git")].rstrip("/")
+        segments = [s for s in path.split("/")[:-1] if s not in ("", ".", "..")]
+        return f"{segments[-1]}/{name}" if segments else name
 
     @staticmethod
     def repo_name_from_url(repo_url):
