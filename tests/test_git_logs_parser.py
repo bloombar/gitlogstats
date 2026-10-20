@@ -128,6 +128,11 @@ class TestRepoNameFromUrl:
             GitLogsParser.repo_name_from_url("/home/user/projects/myrepo") == "myrepo"
         )
 
+    def test_path_to_a_git_folder(self):
+        # git clone names the clone of /x/myrepo/.git "myrepo"
+        for path in ("/x/myrepo/.git", "/x/myrepo/.git/", "/x/myrepo//.git"):
+            assert GitLogsParser.repo_name_from_url(path) == "myrepo"
+
     def test_underscore_in_name(self):
         assert (
             GitLogsParser.repo_name_from_url("https://github.com/user/my_repo.git")

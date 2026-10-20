@@ -250,3 +250,32 @@ class TestRemoveClones:
         repos.mkdir()
         remove_clones(str(repos), [str(repos / "gone")], verbose=True)
         assert capsys.readouterr().err == f"gitlogstats: deleted {repos}\n"
+
+
+class TestSameRemote:
+    """REPO-6: whether a clone was made from the repository given."""
+
+    def test_equal_urls(self, tmp_path):
+        url = "https://github.com/alice/proj.git"
+        assert clones.same_remote(url, url, str(tmp_path))
+
+    def test_forks_with_the_same_name_differ(self, tmp_path):
+        assert not clones.same_remote(
+            "https://github.com/alice/proj.git",
+            "https://github.com/bob/proj.git",
+            str(tmp_path),
+        )
+
+    def test_local_paths_are_compared_by_folder(self, tmp_path):
+        (tmp_path / "proj").mkdir()
+        repos = tmp_path / "repos"
+        repos.mkdir()
+        recorded = str(repos / ".." / "proj")  # as git records "../proj"
+        assert clones.same_remote(recorded, "../proj", str(repos))
+        assert clones.same_remote(recorded, str(tmp_path / "proj") + "/", str(repos))
+        assert not clones.same_remote(recorded, str(repos), str(repos))
+
+    def test_a_missing_path_matches_only_itself(self, tmp_path):
+        assert not clones.same_remote(
+            str(tmp_path / "gone"), str(tmp_path / "other"), str(tmp_path)
+        )

@@ -6,7 +6,7 @@ import re
 import sys
 from . import GitLogsParser
 from . import aggregate
-from .clones import remove_clones
+from .clones import clone_dir_for, remove_clones
 from .git_logs_parser import FIELDNAMES
 from .github import (
     ACTIVITY_FIELDNAMES,
@@ -214,12 +214,12 @@ def main():
     for repo_url in repository_urls:
         os.chdir(repos_dir)  # start from the parent directory of all repos
 
-        repo_dir = GitLogsParser.repo_name_from_url(
-            repo_url
-        )  # extract the humanish repo name from the URL
-        repo_dir = os.path.join(repos_dir, repo_dir)  # convert to absolute path
+        # the humanish repo name from the URL, and the folder of its clone,
+        # which differs from the name only when another repository has it
+        repo_name = GitLogsParser.repo_name_from_url(repo_url)
+        repo_dir, cloned = clone_dir_for(repos_dir, repo_name, repo_url)
         # clone the repo into the repo_dir, or update a previous clone
-        if not os.path.exists(repo_dir):
+        if not cloned:
             # has not yet been cloned... do a clone
             subprocess.run(
                 ["git", "clone", repo_url, repo_dir], capture_output=True, check=True
@@ -247,6 +247,7 @@ def main():
         # with --github, -u and -c are applied after GitHub users are combined
         last_parser = GitLogsParser(
             repo=repo_dir,
+            name=repo_name,
             start=args.start,
             end=args.end,
             username=None if args.github else args.user,

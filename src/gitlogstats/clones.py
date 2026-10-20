@@ -1,9 +1,84 @@
-"""Deleting the repository clones a run used (REPO-5, --clobber)."""
+"""Choosing the folder for each repository's clone (REPO-3, REPO-6) and
+deleting the clones a run used (REPO-5, --clobber)."""
 
 import os
 import shutil
 import stat
+import subprocess
 import sys
+
+
+def origin_url(clone_dir):
+    """
+    Read the URL a clone was cloned from.
+    @param clone_dir: a folder that may hold a clone
+    @returns: the clone's origin URL, or None if the folder is not a clone of
+        its own (no .git inside, so git would look in a parent folder) or has
+        no origin
+    """
+    if not os.path.isdir(os.path.join(clone_dir, ".git")):
+        return None
+    # the URL as recorded by git clone; `git remote get-url` would apply any
+    # url.<base>.insteadOf rewrite, so a reused clone would never match
+    result = subprocess.run(
+        ["git", "-C", clone_dir, "config", "--get", "remote.origin.url"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def same_remote(origin, repo_url, repos_dir):
+    """
+    REPO-6: whether a clone's origin is the repository given on the command
+    line. URLs must be equal. git records a local path made absolute, from
+    repos_dir (where clones are made), so local paths are compared by the
+    folder they lead to.
+    @param origin: the clone's origin URL, from origin_url
+    @param repo_url: the repository as given on the command line
+    @param repos_dir: the folder clones are made from
+    @returns: a bool
+    """
+    if origin == repo_url:
+        return True
+    local = os.path.join(repos_dir, repo_url)  # an absolute path stays as is
+    if os.path.exists(origin) and os.path.exists(local):
+        return _work_tree(origin) == _work_tree(local)
+    return False
+
+
+def _work_tree(path):
+    """
+    The folder a local repository path leads to, the same for `proj` and
+    `proj/.git`.
+    @param path: an existing local path
+    @returns: its real path, without a final .git folder
+    """
+    real = os.path.realpath(path)
+    return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+
+
+def clone_dir_for(repos_dir, name, repo_url):
+    """
+    REPO-3, REPO-6: choose the folder in repos_dir for a repository's clone:
+    repos_dir/name, or name-2, name-3, ... when a different repository with
+    the same name already has that folder.
+    @param repos_dir: the folder that holds the clones
+    @param name: the repository's name, as git clone names its folder
+    @param repo_url: the repository as given on the command line
+    @returns: (path, whether a clone of this repository is already there)
+    """
+    number = 1
+    while True:
+        path = os.path.join(repos_dir, name if number == 1 else f"{name}-{number}")
+        if not os.path.lexists(path):
+            return path, False
+        origin = origin_url(path)
+        if origin is not None and same_remote(origin, repo_url, repos_dir):
+            return path, True
+        number += 1
 
 
 def _make_writable_and_retry(function, path, exc_info):
