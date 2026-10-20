@@ -29,7 +29,7 @@ This document describes what the tool does today and what is planned. Each requi
 
 #### REPO-3 Local clone cache
 
-Repositories are cloned into a `repos/` directory under the current working directory, in a folder named the way `git clone` names it (the last path segment, minus a trailing `.git`; dots in the name are kept). On later runs the existing clone is updated with `git pull` instead of being cloned again. `--clobber` removes the clones after the run (REPO-5).
+Repositories are cloned into a `repos/` directory under the current working directory, in a folder named the way `git clone` names it (the last path segment, minus a trailing `.git`; dots in the name are kept), or a numbered variant of it when another repository has that name (REPO-6). On later runs the existing clone is updated with `git pull` instead of being cloned again. `--clobber` removes the clones after the run (REPO-5).
 
 **Status:** Done
 
@@ -47,9 +47,9 @@ Repositories are cloned into a `repos/` directory under the current working dire
 
 #### REPO-6 Repositories with the same name
 
-Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/project`, or two local paths ending in `project`) are each cloned and analyzed separately, never one in place of the other, in one run or across runs. A clone in `repos/` is reused only for the repository it was cloned from (its `origin` URL equals the URL given, exactly). The first repository with a name uses `repos/<name>` (REPO-3), so existing clones are still reused; a different repository with the same name uses the first free folder among `repos/<name>-2`, `repos/<name>-3`, and so on, checked the same way. The `repository` column still shows `<name>`.
+Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/project`, or two local paths ending in `project`) are each cloned and analyzed separately, never one in place of the other, in one run or across runs. A clone in `repos/` is reused only for the repository it was cloned from (its `origin` URL equals the URL given, or, for a local path, leads to the same folder); a folder in `repos/` that is not a clone, or has no `origin`, is left untouched. The first repository with a name uses `repos/<name>` (REPO-3), so existing clones are still reused; a different repository with the same name uses the first free folder among `repos/<name>-2`, `repos/<name>-3`, and so on, checked the same way. The `repository` column still shows `<name>`.
 
-**Status:** Todo
+**Status:** Done
 
 ### 2. Contribution Statistics
 

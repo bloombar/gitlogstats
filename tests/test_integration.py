@@ -544,6 +544,171 @@ class TestCommandLine:
         assert exc.value.code == 2
 
 
+# ─── Repositories with the same name (REPO-6) ────────────────────────────────
+
+
+class TestSameNameRepositories:
+    """Two different repositories called "proj" (e.g. two forks)."""
+
+    @pytest.fixture
+    def forks(self, tmp_path):
+        """alice/proj has 1 commit and 1 merge; bob/proj 3 commits and 2 merges."""
+        alice = Repo(tmp_path / "alice" / "proj")
+        alice.write("a.txt", lines(1))
+        alice.commit("Alice", "start")
+        alice.branch("feature")
+        alice.write("a.txt", lines(2))
+        alice.commit("Alice", "feature")
+        alice.switch("main")
+        alice.merge("Alice", "feature")
+        bob = Repo(tmp_path / "bob" / "proj")
+        bob.write("b.txt", lines(1))
+        bob.commit("Bob", "start")
+        for n in (1, 2):
+            bob.branch(f"f{n}")
+            bob.write("b.txt", lines(n + 1))
+            bob.commit("Bob", f"feature {n}")
+            bob.switch("main")
+            bob.merge("Bob", f"f{n}")
+        return alice, bob
+
+    def run(self, monkeypatch, capsys, cwd, *argv):
+        """Run the command in *cwd*; returns {(repository, username): row}."""
+        monkeypatch.chdir(cwd)
+        argv = [*argv, "-f", "json", "-s", "01/01/2024", "-e", "12/31/2024"]
+        monkeypatch.setattr(sys, "argv", ["gitlogstats", *argv])
+        main()
+        return {
+            (r["repository"], r["username"]): r
+            for r in json.loads(capsys.readouterr().out)
+        }
+
+    def merges(self, rows):
+        return {key: (row["commits"], row["merges"]) for key, row in rows.items()}
+
+    def test_one_run_analyzes_each_repository(
+        self, forks, tmp_path, monkeypatch, capsys
+    ):
+        repofile = tmp_path / "list.txt"
+        repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n")
+        rows = self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile))
+        assert self.merges(rows) == {
+            ("proj", "Alice"): (2, 1),
+            ("proj", "Bob"): (3, 2),
+        }
+        assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2"]
+
+    def test_later_runs_reuse_the_right_clone(
+        self, forks, tmp_path, monkeypatch, capsys
+    ):
+        alice, bob = forks
+        assert self.merges(
+            self.run(monkeypatch, capsys, tmp_path, "-r", alice.path)
+        ) == {("proj", "Alice"): (2, 1)}
+        # a cached clone of alice/proj must not stand in for bob/proj
+        assert self.merges(self.run(monkeypatch, capsys, tmp_path, "-r", bob.path)) == {
+            ("proj", "Bob"): (3, 2)
+        }
+        # new work reaches each clone, and no third folder is made
+        bob.write("b.txt", lines(9))
+        bob.commit("Bob", "more")
+        for _ in range(2):
+            assert self.merges(
+                self.run(monkeypatch, capsys, tmp_path, "-r", bob.path + "/")
+            ) == {("proj", "Bob"): (4, 2)}
+            assert self.merges(
+                self.run(monkeypatch, capsys, tmp_path, "-r", alice.path)
+            ) == {("proj", "Alice"): (2, 1)}
+        assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2"]
+
+    def test_a_folder_that_is_not_a_clone_is_left_alone(
+        self, forks, tmp_path, monkeypatch, capsys
+    ):
+        stray = tmp_path / "repos" / "proj"
+        stray.mkdir(parents=True)
+        (stray / "notes.txt").write_text("mine")
+        rows = self.run(monkeypatch, capsys, tmp_path, "-r", forks[1].path)
+        assert self.merges(rows) == {("proj", "Bob"): (3, 2)}
+        assert os.listdir(stray) == ["notes.txt"]
+        assert (tmp_path / "repos" / "proj-2" / ".git").is_dir()
+
+    def test_a_clone_without_origin_is_left_alone(
+        self, forks, tmp_path, monkeypatch, capsys
+    ):
+        Repo(tmp_path / "repos" / "proj")  # a repository, but cloned from nowhere
+        rows = self.run(monkeypatch, capsys, tmp_path, "-r", forks[0].path)
+        assert self.merges(rows) == {("proj", "Alice"): (2, 1)}
+        assert (tmp_path / "repos" / "proj-2" / ".git").is_dir()
+
+    def test_a_repository_named_like_a_numbered_folder(
+        self, forks, tmp_path, monkeypatch, capsys
+    ):
+        carol = Repo(tmp_path / "carol" / "proj-2")
+        carol.write("c.txt", lines(1))
+        carol.commit("Carol", "start")
+        repofile = tmp_path / "list.txt"
+        repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n{carol.path}\n")
+        rows = self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile))
+        assert self.merges(rows) == {
+            ("proj", "Alice"): (2, 1),
+            ("proj", "Bob"): (3, 2),
+            ("proj-2", "Carol"): (1, 0),
+        }
+        assert sorted(os.listdir(tmp_path / "repos")) == ["proj", "proj-2", "proj-2-2"]
+
+    def test_clobber_deletes_every_clone(self, forks, tmp_path, monkeypatch, capsys):
+        repofile = tmp_path / "list.txt"
+        repofile.write_text(f"{forks[0].path}\n{forks[1].path}\n")
+        self.run(monkeypatch, capsys, tmp_path, "-rf", str(repofile), "--clobber")
+        assert not (tmp_path / "repos").exists()
+
+
+class TestSameNameReuse:
+    """REPO-3, REPO-6: forms of a URL that must keep reusing one clone."""
+
+    def run(self, monkeypatch, capsys, cwd, url):
+        """Run the command on *url* in *cwd*; returns Bob's commit count."""
+        monkeypatch.chdir(cwd)
+        argv = ["-r", url, "-f", "json", "-s", "01/01/2024", "-e", "12/31/2024"]
+        monkeypatch.setattr(sys, "argv", ["gitlogstats", *argv])
+        main()
+        return json.loads(capsys.readouterr().out)[0]["commits"]
+
+    @pytest.fixture
+    def remote(self, tmp_path):
+        bob = Repo(tmp_path / "real" / "proj")
+        bob.write("b.txt", lines(1))
+        bob.commit("Bob", "start")
+        return bob
+
+    def test_rewritten_urls_reuse_the_clone(
+        self, remote, tmp_path, monkeypatch, capsys
+    ):
+        # git rewrites the URL on use (url.<base>.insteadOf, as for SSH users);
+        # the clone records the URL as given, which is what must be compared
+        config = tmp_path / "gitconfig"
+        real = os.path.dirname(remote.path)
+        config.write_text(
+            f'[url "file://{real}/"]\n\tinsteadOf = https://example.invalid/\n'
+        )
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+        for commits in (1, 1, 2):
+            if commits == 2:
+                remote.write("b.txt", lines(2))
+                remote.commit("Bob", "more")
+            url = "https://example.invalid/proj"
+            assert self.run(monkeypatch, capsys, tmp_path, url) == commits
+        assert os.listdir(tmp_path / "repos") == ["proj"]
+
+    def test_a_path_to_the_git_folder_reuses_the_clone(
+        self, remote, tmp_path, monkeypatch, capsys
+    ):
+        assert self.run(monkeypatch, capsys, tmp_path, remote.path) == 1
+        git_dir = os.path.join(remote.path, ".git")
+        assert self.run(monkeypatch, capsys, tmp_path, git_dir) == 1
+        assert os.listdir(tmp_path / "repos") == ["proj"]
+
+
 # ─── Output format: exact CSV and JSON for single and multiple repositories ──
 
 

@@ -172,7 +172,7 @@ The columns are `date`, the usual counts, `repositories` (how many repositories 
 
 ### Cloned repositories
 
-Each repository is cloned into a `repos/` directory under the directory you run the command from, and later runs update (`git pull`) the existing clone instead of cloning again, which makes them much faster. Add `--clobber` to delete the clones the run used, once the results have been printed; `repos/` itself is removed too if nothing else is left in it. Clones from other runs are kept, and nothing is deleted if the run fails before printing, so you can inspect it. With `-v`, each deleted path is listed on standard error.
+Each repository is cloned into a `repos/` directory under the directory you run the command from, and later runs update (`git pull`) the existing clone instead of cloning again, which makes them much faster. Repositories with the same name (such as two forks, `alice/project` and `bob/project`) get separate folders, `repos/project` and `repos/project-2`. Add `--clobber` to delete the clones the run used, once the results have been printed; `repos/` itself is removed too if nothing else is left in it. Clones from other runs are kept, and nothing is deleted if the run fails before printing, so you can inspect it. With `-v`, each deleted path is listed on standard error.
 
 ```
 gitlogstats -rf repos.txt --clobber
