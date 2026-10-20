@@ -55,10 +55,12 @@ class GitLogsParser:
         repofile=None,
         verbose=False,
         clean=False,
+        name=None,
     ):
         """
         Initialize the git logs parser for a given repository
         @param repo: the path to the repository of interest.
+        @param name: the repository name to report; defaults to the last part of repo (REPO-6: the clone's folder may be name-2)
         @param start: the start date of interest, in standard US format, e.g. 01/01/2021. defaults to exactly 1 year ago.
         @param end: the end date of interest, in standard US format, e.g. 12/31/2021.  defaults to today's date.
         @param username: an optional username of interest.  if not present, we report all contributing users
@@ -68,6 +70,7 @@ class GitLogsParser:
         """
 
         self.repository = repo
+        self.name = name
         self.repofile = repofile
         self.start = start
         self.end = end
@@ -343,7 +346,7 @@ class GitLogsParser:
         for contributor in contributors:
             entries[contributor] = {
                 "username": contributor,  # redundant, but useful
-                "repository": self.repo_name_from_url(self.repository),
+                "repository": self.repository_name(),
                 "start_date": self.start,
                 "end_date": self.end,
                 "commits": 0,
@@ -470,6 +473,15 @@ class GitLogsParser:
         if self.verbose:
             print(*args, file=sys.stderr)
 
+    def repository_name(self):
+        """
+        The repository name reported in the `repository` column.
+        @returns: the name given to the parser, or the last part of its path
+        """
+        if self.name is not None:
+            return self.name
+        return self.repo_name_from_url(self.repository)
+
     @staticmethod
     def repo_name_from_url(repo_url):
         """
@@ -477,7 +489,10 @@ class GitLogsParser:
         @param repo_url: The URL of the repository of interest
         @returns: The repository name, with the rest of the URL removed.
         """
-        repo_name = re.split(r"[/:]", repo_url.strip().rstrip("/"))[-1]
+        path = repo_url.strip().rstrip("/")
+        if path.endswith("/.git"):  # a repository's .git folder, as git clone takes it
+            path = path[: -len("/.git")].rstrip("/")
+        repo_name = re.split(r"[/:]", path)[-1]
         if repo_name.endswith(".git"):
             repo_name = repo_name[: -len(".git")]
         return repo_name

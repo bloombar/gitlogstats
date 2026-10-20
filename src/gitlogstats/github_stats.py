@@ -8,7 +8,7 @@ error; the rows are returned for the caller to print.
 
 import sys
 
-from .git_logs_parser import FIELDNAMES, GitLogsParser
+from .git_logs_parser import FIELDNAMES
 from .github import (
     GHOST_LOGIN,
     ACTIVITY_FIELDNAMES,
@@ -157,7 +157,7 @@ def tally(parser, rows, data, identities, start, end, branch, events=None):
     web_commits = count_web_commits(events["commits"], data["prs"])
     rows = [dict(row, web_commits=web_commits.get(row["username"], 0)) for row in rows]
 
-    repository = GitLogsParser.repo_name_from_url(parser.repository)
+    repository = parser.repository_name()
     return consolidate(
         rows,
         data["matches"],
