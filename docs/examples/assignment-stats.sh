@@ -16,10 +16,10 @@
 # arguments are passed to gitlogstats unchanged (e.g. -f json, -c).
 # The results go to standard output; progress messages go to standard error.
 #
-# Requires: Python 3, git, and the GitHub CLI (gh), signed in with
+# Requires: Python 3, pipenv, git, and the GitHub CLI (gh), signed in with
 # `gh auth login` (gh is used to list the organization's repositories).
-# gitlogstats is installed or upgraded automatically in its own Python
-# environment (~/.gitlogstats-venv, or $GITLOGSTATS_VENV).
+# gitlogstats is installed automatically in the pipenv environment defined by
+# the Pipfile and Pipfile.lock next to this script.
 
 set -euo pipefail
 
@@ -49,17 +49,7 @@ for date in "$START_DATE" "$END_DATE"; do
   fi
 done
 
-# find a Python 3 interpreter: python3 on macOS and Linux, often python on Git Bash
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON=python3
-elif command -v python >/dev/null 2>&1; then
-  PYTHON=python
-else
-  echo "error: Python 3 is not installed" >&2
-  exit 1
-fi
-
-for tool in git gh; do
+for tool in git gh pipenv; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "error: '$tool' is not installed" >&2
     exit 1
@@ -71,26 +61,20 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-# install or upgrade gitlogstats in a virtual environment of its own: many
-# systems (Homebrew Python, recent Debian and Ubuntu) refuse a system-wide
-# pip install. The environment is kept and reused by later runs; set
-# GITLOGSTATS_VENV to put it somewhere else.
-VENV=${GITLOGSTATS_VENV:-"$HOME/.gitlogstats-venv"}
-if [ ! -d "$VENV" ]; then
-  echo "Creating a Python environment for gitlogstats in $VENV..." >&2
-  if ! "$PYTHON" -m venv "$VENV"; then
-    echo "error: could not create a virtual environment (on Debian or Ubuntu, install python3-venv)" >&2
-    exit 1
-  fi
+# gitlogstats runs in the pipenv environment defined by the Pipfile next to
+# this script, whatever directory the script is run from. `pipenv sync`
+# creates the environment on the first run and installs exactly the versions
+# in Pipfile.lock; later runs only check it. Any virtual environment that is
+# already active is ignored, so the Pipfile's environment is always used.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+export PIPENV_PIPFILE="$SCRIPT_DIR/Pipfile"
+export PIPENV_IGNORE_VIRTUALENVS=1
+export PIPENV_VERBOSITY=-1
+echo "Setting up the Python environment from $PIPENV_PIPFILE..." >&2
+if ! pipenv sync >&2; then
+  echo "error: could not set up the Python environment with pipenv" >&2
+  exit 1
 fi
-# the environment's Python is in bin/ on macOS, Linux and WSL, Scripts/ on Windows
-if [ -x "$VENV/bin/python" ]; then
-  VENV_PYTHON="$VENV/bin/python"
-else
-  VENV_PYTHON="$VENV/Scripts/python.exe"
-fi
-echo "Installing the latest gitlogstats..." >&2
-"$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check --upgrade gitlogstats >&2
 
 # list the assignment's repositories in a temporary file, so an existing
 # repos.txt in this directory is never overwritten
@@ -113,5 +97,5 @@ echo "Analyzing $count repositories from $START_DATE to $END_DATE..." >&2
 # --github adds the GitHub columns (pull requests, pushes, website commits,
 # emails) and combines each student's git names into one row; --clobber
 # deletes the clones once the results are printed
-"$VENV_PYTHON" -m gitlogstats -rf "$REPOS_FILE" -s "$START_DATE" -e "$END_DATE" \
+pipenv run python -m gitlogstats -rf "$REPOS_FILE" -s "$START_DATE" -e "$END_DATE" \
   --github --clobber "$@"

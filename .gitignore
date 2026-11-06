@@ -159,5 +159,6 @@ cython_debug/
 # node tooling
 node_modules/
 
-# assignment statistics: real student names and emails, never commit
-docs/examples/*.csv
+# assignment statistics and scores: real student names and emails, never
+# commit any CSV, wherever it is saved in the repository
+*.csv
