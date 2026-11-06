@@ -96,14 +96,17 @@ To run it without opening it: `pipenv run jupyter nbconvert --to notebook --exec
 
 ### Settings
 
-| Setting              | Meaning                                                                                                             | Default                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `INPUT_CSV`          | Statistics CSV to score                                                                                             | `project-2-stats.csv`                                                                                    |
-| `OUTPUT_CSV`         | Where to write the scores; `None` to skip                                                                           | `project-2-scores.csv`                                                                                   |
-| `EXCLUDE_DEVELOPERS` | GitHub usernames (or git names) to leave out, e.g. the instructor whose starter commits are in every repository     | `["bloombar"]`                                                                                           |
-| `COMBINED_METRICS`   | New metrics made by adding CSV columns together                                                                     | `prs_closed` = `prs_merged` + `prs_closed_unmerged`                                                      |
-| `CAPS`               | The scored metrics and their caps                                                                                   | `commits` 15, `insertions` 1000, `deletions` 300, `files` 30, `merges` 8, `prs_opened` 6, `prs_closed` 6 |
-| `PENALTIES`          | Metrics that take points off: `max_penalty` is the most a metric can cost, reached when the count gets to `full_at` | 10 points at a count of 3                                                                                |
+| Setting                                            | Meaning                                                                                                                                         | Default                                                                                                  |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `INPUT_CSV`                                        | Statistics CSV to score                                                                                                                         | `project-2-stats.csv`                                                                                    |
+| `OUTPUT_CSV`                                       | Where to write the scores; `None` to skip                                                                                                       | `project-2-scores.csv`                                                                                   |
+| `EXCLUDE_DEVELOPERS`                               | GitHub usernames (or git names) to leave out, e.g. the instructor whose starter commits are in every repository                                 | `["bloombar"]`                                                                                           |
+| `COMBINED_METRICS`                                 | New metrics made by adding CSV columns together                                                                                                 | `prs_closed` = `prs_merged` + `prs_closed_unmerged`                                                      |
+| `CAPS`                                             | The scored metrics and their caps                                                                                                               | `commits` 15, `insertions` 1000, `deletions` 300, `files` 30, `merges` 8, `prs_opened` 6, `prs_closed` 6 |
+| `MAX_LINES_ADDED`                                  | Most lines a student can add before it looks like copied-in libraries or generated code; lines added beyond it are penalized                    | `2500`                                                                                                   |
+| `PENALTIES`                                        | Metrics that take points off: `max_penalty` is the most a metric can cost, reached when the amount over `allowed` (default 0) gets to `full_at` | 10 points at a count of 3; for lines added, 10 points at 2500 lines over `MAX_LINES_ADDED`               |
+| `METRIC_LABELS`, `PENALTY_LABELS`, `PENALTY_UNITS` | How metrics and penalties are named in the `comment` column                                                                                     | e.g. `insertions` → "lines added"                                                                        |
+| `COMMENT_THRESHOLD`                                | How far from the class average, in standard deviations, a metric must be to be called a strength or weakness in the comment                     | `0.5`                                                                                                    |
 
 ### How scores are calculated
 
@@ -111,9 +114,14 @@ To run it without opening it: `pipenv run jupyter nbconvert --to notebook --exec
 2. **Cap.** A value above its metric's cap counts as the cap: with a `prs_opened` cap of 6, 9 pull requests count as 6.
 3. **Z-score.** Each capped metric becomes a z-score (standard deviations above or below the class average), so metrics in different units count equally.
 4. **Base score.** Each student's z-scores are averaged and rescaled so the lowest student is 0 and the highest is 100. Scores are relative to the class.
-5. **Penalties.** `prs_self_merged`, `pushes_to_default` and `web_commits` are not averaged; each takes off `max_penalty × min(count, full_at) ÷ full_at` points (by default 3.3 per occurrence, at most 10 per metric). The final score is never below 0.
+5. **Penalties.** `prs_self_merged`, `pushes_to_default` and `web_commits` are not averaged; each takes off `max_penalty × min(count, full_at) ÷ full_at` points (by default 3.3 per occurrence, at most 10 per metric). Lines added beyond `MAX_LINES_ADDED` are penalized the same way (by default 1 point per 250 lines over 2500, at most 10), as a sign of copied-in libraries or generated code.
+6. **Final score.** The base score minus the penalties, never below 0, rounded to the nearest whole number.
 
 The scores CSV keeps each student's uncapped totals, `mean_z`, `base_score` and `total_penalty` next to `score`, so any score can be checked by hand.
+
+Its last column, `comment`, explains the score to the student in plain language, ready to paste into feedback:
+
+> Score 57/100: activity 71.3/100 compared with the rest of the class, minus 14.0 penalty points. Above class average in commits, files changed, lines added. Below class average in pull requests opened (1, typical 5); merges (0, typical 4). Points lost for: merging your own pull request without a review (2 times, -6.7); committing through the GitHub website instead of git (1 time, -3.3); adding an unrealistic number of lines (3,500 lines).
 
 ## Student data
 
