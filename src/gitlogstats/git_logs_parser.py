@@ -494,7 +494,7 @@ class GitLogsParser:
         @returns: owner/name, or the name alone if no segment comes before it
         """
         name = GitLogsParser.repo_name_from_url(repo_url)
-        path = repo_url.strip()
+        path = repo_url.strip().replace("\\", "/")
         if "://" in path:
             path = urllib.parse.urlsplit(path).path
         elif re.match(r"^[^/]{2,}:", path):  # not a drive letter, as in C:/x
@@ -515,7 +515,7 @@ class GitLogsParser:
         path = repo_url.strip().rstrip("/")
         if path.endswith("/.git"):  # a repository's .git folder, as git clone takes it
             path = path[: -len("/.git")].rstrip("/")
-        repo_name = re.split(r"[/:]", path)[-1]
+        repo_name = re.split(r"[/:\\]", path)[-1]
         if repo_name.endswith(".git"):
             repo_name = repo_name[: -len(".git")]
         return repo_name
