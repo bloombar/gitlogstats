@@ -152,6 +152,8 @@ class TestRepoNameFromUrl:
             ("git@example.com:proj.git", "proj"),
             ("ssh://git@example.com:2222/alice/proj.git", "alice/proj"),
             ("C:/work/alice/proj", "alice/proj"),
+            ("C:\\work\\alice\\proj", "alice/proj"),
+            ("projects\\myrepo", "projects/myrepo"),
         ],
     )
     def test_label_is_owner_and_name(self, url, label):
@@ -173,6 +175,9 @@ class TestRepoNameFromUrl:
 
     def test_ssh_url_without_path(self):
         assert GitLogsParser.repo_name_from_url("git@host:my-repo.git") == "my-repo"
+
+    def test_windows_backslash_path(self):
+        assert GitLogsParser.repo_name_from_url("C:\\work\\alice\\proj") == "proj"
 
     def test_ssh_url(self):
         assert (
