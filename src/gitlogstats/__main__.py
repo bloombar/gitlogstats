@@ -153,8 +153,8 @@ def main():
         "-x",
         "--exclusions",
         help="A comma-separated list of files, patterns or directories to exclude, "
-        'e.g. --exclusions "foo.zip, *.jpg, vendor". Replaces the default list; '
-        'use "" to exclude nothing',
+        'ignoring case, e.g. --exclusions "foo.zip, *.jpg, vendor". Replaces the '
+        'default list; use "" to exclude nothing',
         default=",".join(exclusions),
     )
     parser.add_argument(

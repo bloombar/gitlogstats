@@ -166,13 +166,19 @@ With `--github`, for each contributor, how many of their commits counted in `com
 
 #### FILT-3 File exclusions
 
-`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory. A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing. Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
+`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory and ignoring case (FILT-5). A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing. Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
 
 **Status:** Done
 
 #### FILT-4 Remove inactive contributors
 
 By default, contributors with no activity in the date range are listed with zeros. `-c/--clean` removes them. With `--github`, only rows with neither git, pull-request nor push activity are removed (CLI-3).
+
+**Status:** Done
+
+#### FILT-5 Case-insensitive exclusions
+
+File exclusions (FILT-3) ignore the case of file and directory names, so `*.jpg` also excludes `IMG_0001.JPG` and `Photo.Jpg`, `package.json` also excludes `Package.JSON`, and `vendor` also excludes `Vendor/`. This applies to the default list and to patterns given with `-x`, on every operating system, whether or not the file system itself is case-sensitive.
 
 **Status:** Done
 

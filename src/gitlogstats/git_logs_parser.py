@@ -170,16 +170,17 @@ class GitLogsParser:
     def exclusion_pathspecs(self):
         """
         Convert the exclusions to git pathspecs. Each one is matched in any
-        directory, and if it names a directory (e.g. 'vendor' or 'vendor/'),
-        everything inside that directory is excluded too.
+        directory, ignoring case (so '*.jpg' also matches 'IMG.JPG'), and if
+        it names a directory (e.g. 'vendor' or 'vendor/'), everything inside
+        that directory is excluded too.
         @returns: a list of git pathspec arguments
         """
         pathspecs = []
         for exclusion in self.exclusions:
             pattern = exclusion.strip().rstrip("/")
             if pattern:
-                pathspecs.append(f":(exclude,glob)**/{pattern}")
-                pathspecs.append(f":(exclude,glob)**/{pattern}/**")
+                pathspecs.append(f":(exclude,glob,icase)**/{pattern}")
+                pathspecs.append(f":(exclude,glob,icase)**/{pattern}/**")
         return pathspecs
 
     def merge_log_command(self, log_format=LOG_FORMAT):

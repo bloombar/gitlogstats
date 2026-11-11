@@ -19,7 +19,6 @@ from fake_gh import install_fake_gh
 from gitlogstats import GitLogsParser
 from gitlogstats.__main__ import distinct_labels, main
 
-
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -385,6 +384,100 @@ class TestExclusions:
         repo.commit("Alice", "locks")
         alice = stats(repo, monkeypatch, exclusions=["Pipfile.lock"])["Alice"]
         assert counts(alice) == (1, 1, 1, 0)
+
+    @pytest.mark.parametrize(
+        "exclusion,path",
+        [
+            ("*.jpg", "IMG_0001.JPG"),
+            ("*.jpg", "photos/Holiday.Jpg"),
+            ("*.JPG", "photo.jpg"),
+            ("package.json", "Package.JSON"),
+            ("package.json", "web/PACKAGE.json"),
+            ("requirements.txt", "Requirements.TXT"),
+            ("vendor", "Vendor/lib.js"),
+            ("vendor/", "src/VENDOR/deep/lib.js"),
+            ("docs/*.md", "Docs/Guide.MD"),
+        ],
+    )
+    def test_exclusions_ignore_case(self, repo, monkeypatch, exclusion, path):
+        repo.write("code.py", lines(2))
+        repo.commit("Alice", "code")
+        repo.write(path, lines(10))
+        repo.commit("Alice", "excluded in another case")
+        assert counts(stats(repo, monkeypatch)["Alice"]) == (2, 2, 12, 0)
+        alice = stats(repo, monkeypatch, exclusions=[exclusion])["Alice"]
+        assert counts(alice) == (1, 1, 2, 0)
+
+    def test_case_insensitive_match_leaves_other_names_alone(self, repo, monkeypatch):
+        repo.write("photo.jpg", lines(10))
+        repo.write("photo.jpeg", lines(4))
+        repo.write("PACKAGE.JSON.bak", lines(2))
+        repo.write("vendored.py", lines(1))
+        repo.commit("Alice", "similar names")
+        exclusions = ["*.jpg", "package.json", "vendor"]
+        alice = stats(repo, monkeypatch, exclusions=exclusions)["Alice"]
+        assert counts(alice) == (1, 3, 7, 0)
+
+    def test_deleting_only_excluded_files_is_not_counted(self, repo, monkeypatch):
+        repo.write("code.py", lines(2))
+        repo.write("data.json", lines(10))
+        repo.commit("Alice", "add")
+        os.remove(os.path.join(repo.path, "data.json"))
+        repo.commit("Alice", "delete data")
+        assert counts(stats(repo, monkeypatch)["Alice"]) == (2, 3, 12, 10)
+        alice = stats(repo, monkeypatch, exclusions=["*.json"])["Alice"]
+        assert counts(alice) == (1, 1, 2, 0)
+
+    def test_editing_only_excluded_files_is_not_counted(self, repo, monkeypatch):
+        repo.write("code.py", lines(2))
+        repo.write("data.json", lines(10))
+        repo.commit("Alice", "add")
+        repo.write("data.json", lines(4, prefix="changed"))
+        repo.commit("Alice", "edit data")
+        assert counts(stats(repo, monkeypatch)["Alice"]) == (2, 3, 16, 10)
+        alice = stats(repo, monkeypatch, exclusions=["*.json"])["Alice"]
+        assert counts(alice) == (1, 1, 2, 0)
+
+    def test_deletions_in_a_mixed_commit_count_only_the_rest(self, repo, monkeypatch):
+        repo.write("code.py", lines(5))
+        repo.write("data.json", lines(10))
+        repo.commit("Alice", "add")
+        repo.write("code.py", lines(3))
+        os.remove(os.path.join(repo.path, "data.json"))
+        repo.commit("Bob", "trim code, drop data")
+        bob = stats(repo, monkeypatch, exclusions=["*.json"])["Bob"]
+        assert counts(bob) == (1, 1, 0, 2)
+        assert counts(stats(repo, monkeypatch)["Bob"]) == (1, 2, 0, 12)
+
+    def test_renaming_into_an_included_name_counts_as_an_addition(
+        self, repo, monkeypatch
+    ):
+        repo.write("data.json", lines(10))
+        repo.commit("Alice", "add data")
+        repo.git("mv", "data.json", "data.txt")
+        repo.commit("Bob", "rename")
+        bob = stats(repo, monkeypatch, exclusions=["*.json"])["Bob"]
+        assert counts(bob) == (1, 1, 10, 0)
+
+    def test_renaming_into_an_excluded_name_counts_as_a_deletion(
+        self, repo, monkeypatch
+    ):
+        repo.write("data.txt", lines(10))
+        repo.commit("Alice", "add data")
+        repo.git("mv", "data.txt", "data.json")
+        repo.commit("Bob", "rename")
+        bob = stats(repo, monkeypatch, exclusions=["*.json"])["Bob"]
+        assert counts(bob) == (1, 1, 0, 10)
+
+    def test_renaming_between_excluded_names_is_not_counted(self, repo, monkeypatch):
+        repo.write("code.py", lines(1))
+        repo.write("a.json", lines(10))
+        repo.commit("Alice", "add")
+        repo.git("mv", "a.json", "B.JSON")
+        repo.commit("Bob", "rename")
+        result = stats(repo, monkeypatch, exclusions=["*.json"])
+        assert "Bob" not in result or result["Bob"]["commits"] == 0
+        assert stats(repo, monkeypatch)["Bob"]["commits"] == 1
 
 
 # ─── Command line ────────────────────────────────────────────────────────────
@@ -1190,6 +1283,14 @@ class TestExclusionCounts:
         assert counts(everything["Bob"]) == (2, 2, 7, 0)
         assert everything["Carol"]["merges"] == 2
 
+    def test_partly_excluded_commit_on_a_merged_branch(self, base, monkeypatch):
+        feature(base, "deps", "Bob", {"code.py": 2, "package.json": 20, "IMG.JPG": 5})
+        base.merge("Carol", "deps")
+        result = stats(base, monkeypatch, exclusions=["package.json", "*.jpg"])
+        assert counts(result["Bob"]) == (1, 1, 2, 0)
+        assert (result["Carol"]["commits"], result["Carol"]["merges"]) == (0, 1)
+        assert counts(stats(base, monkeypatch)["Bob"]) == (1, 3, 27, 0)
+
 
 class TestExclusionOption:
     """The -x option on the command line: default, none, one, several."""
@@ -1250,6 +1351,47 @@ class TestExclusionOption:
         assert result["Bob"]["commits"] == 1
         assert result["Carol"]["merges"] == 1
 
+    # one file for every entry in the documented default list (FILT-3), at the
+    # top level, in a subdirectory, and with its name in another case (FILT-5)
+    DEFAULT_EXCLUDED = [
+        "package.json",
+        "package-lock.json",
+        "Pipfile",
+        "Pipfile.lock",
+        "requirements.txt",
+        "a.jpg",
+        "a.png",
+        "a.gif",
+        "a.svg",
+        "a.pdf",
+        "a.zip",
+        "a.gz",
+        "a.tar",
+        "a.csv",
+        "a.json",
+    ]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            variant
+            for name in DEFAULT_EXCLUDED
+            for variant in (name, f"sub/dir/{name}", name.upper())
+        ],
+    )
+    def test_default_list_excludes(self, tmp_path, monkeypatch, capsys, path):
+        remote = Repo(tmp_path / "remotes" / "proj")
+        remote.write("code.py", lines(1))
+        remote.commit("Alice", "code")
+        remote.write(path, lines(10))
+        remote.commit("Alice", "default-excluded file")
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        result = self.run(monkeypatch, capsys, tmp_path / "a", remote)
+        assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == (1, 1)
+        result = self.run(monkeypatch, capsys, tmp_path / "b", remote, "-x", "")
+        assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == (2, 11)
+
 
 # ─── GitHub pull requests (--github) ─────────────────────────────────────────
 
@@ -1300,9 +1442,9 @@ def pr(
         "mergedAt": merged,
         "closedAt": merged or closed,
         "baseRefName": base,
-        "mergeCommit": {"oid": commit[0], "committedDate": commit[1]}
-        if commit
-        else None,
+        "mergeCommit": (
+            {"oid": commit[0], "committedDate": commit[1]} if commit else None
+        ),
     }
 
 

@@ -46,9 +46,9 @@ options:
   -e END, --end END     End date in mm/dd/yyyy format
   -x EXCLUSIONS, --exclusions EXCLUSIONS
                         A comma-separated list of files, patterns or
-                        directories to exclude, e.g. --exclusions "foo.zip,
-                        *.jpg, vendor". Replaces the default list; use "" to
-                        exclude nothing
+                        directories to exclude, ignoring case, e.g.
+                        --exclusions "foo.zip, *.jpg, vendor". Replaces the
+                        default list; use "" to exclude nothing
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
   -b BRANCH, --branch BRANCH
@@ -128,6 +128,8 @@ gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 By default, common generated and binary files are left out of the analysis: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv` and `*.json`. Use `-x` to give your own comma-separated list instead. It replaces the default list rather than adding to it.
 
 Each item can be a file name, a glob pattern or a directory, and is matched in any directory of the repository. A directory name, such as `vendor` or `vendor/`, excludes everything inside it. A path such as `docs/*.md` matches only inside directories with that name.
+
+Matching ignores case, so `*.jpg` also excludes `IMG_0001.JPG`, and `vendor` also excludes `Vendor/`.
 
 ```
 gitlogstats -rf repos.txt -x "*.json, *.lock, vendor, docs/*.md"
