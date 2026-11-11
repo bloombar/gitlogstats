@@ -2,7 +2,6 @@ import os
 import subprocess
 import argparse
 import datetime
-import re
 import sys
 import urllib.parse
 from . import GitLogsParser
@@ -17,6 +16,77 @@ from .github import (
     check_gh,
 )
 from .github_stats import github_day_rows, github_rows
+
+# FILT-7: files excluded unless -x gives another list. No entry is covered by
+# another (*.json already covers package.json, *.lock covers Pipfile.lock).
+DEFAULT_EXCLUSIONS = [
+    # package and lock files
+    "*.json",
+    "*.lock",
+    "Pipfile",
+    "requirements.txt",
+    "pnpm-lock.yaml",
+    "go.sum",
+    # dependency and build folders
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "dist",
+    "build",
+    # minified and generated web files
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+    # images
+    "*.jpg",
+    "*.jpeg",
+    "*.png",
+    "*.gif",
+    "*.svg",
+    "*.webp",
+    "*.ico",
+    "*.bmp",
+    "*.tiff",
+    # documents, data and archives
+    "*.pdf",
+    "*.csv",
+    "*.zip",
+    "*.gz",
+    "*.tar",
+    "*.7z",
+    "*.rar",
+    "*.jar",
+    # fonts and media
+    "*.woff",
+    "*.woff2",
+    "*.ttf",
+    "*.otf",
+    "*.mp3",
+    "*.mp4",
+    "*.mov",
+    "*.wav",
+    # operating system files
+    ".DS_Store",
+]
+
+
+def split_exclusions(*lists):
+    """
+    Turn comma-separated exclusion lists into one list without duplicates
+    (FILT-7). Matching ignores case and a trailing '/' means the same folder,
+    so items differing only in those count as duplicates; the first is kept.
+    @param lists: comma-separated strings, e.g. the -x and --extend-exclusions values
+    @returns: the items in order, stripped of surrounding spaces, empty items dropped
+    """
+    items = {}
+    for text in lists:
+        for item in text.split(","):
+            item = item.strip()
+            key = item.rstrip("/").casefold()
+            if key and key not in items:
+                items[key] = item
+    return list(items.values())
 
 
 def valid_date(value):
@@ -97,25 +167,6 @@ def main():
     )  # the the date one year ago from today
     str_last_year = last_year.strftime("%m/%d/%Y")
 
-    # default files to exclude from analysis
-    exclusions = [
-        "package.json",
-        "package-lock.json",
-        "Pipfile",
-        "Pipfile.lock",
-        "requirements.txt",
-        "*.jpg",
-        "*.png",
-        "*.gif",
-        "*.svg",
-        "*.pdf",
-        "*.zip",
-        "*.gz",
-        "*.tar",
-        "*.csv",
-        "*.json",
-    ]
-
     # get the command-line arguments
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -154,8 +205,23 @@ def main():
         "--exclusions",
         help="A comma-separated list of files, patterns or directories to exclude, "
         'ignoring case, e.g. --exclusions "foo.zip, *.jpg, vendor". Replaces the '
-        'default list; use "" to exclude nothing',
-        default=",".join(exclusions),
+        'default list; use "" for no patterns (and --no-gitignore to exclude '
+        "nothing at all)",
+        default=",".join(DEFAULT_EXCLUSIONS),
+    )
+    parser.add_argument(
+        "--extend-exclusions",
+        help="A comma-separated list of files, patterns or directories to exclude "
+        "in addition to the default list (or to the list given with -x), e.g. "
+        '--extend-exclusions "*.md, docs"',
+        metavar="EXCLUSIONS",
+        default="",
+    )
+    parser.add_argument(
+        "--no-gitignore",
+        help="Count files that the repository's .gitignore ignores; by default "
+        "they are excluded",
+        action="store_true",
     )
     parser.add_argument(
         "-f",
@@ -218,8 +284,8 @@ def main():
     ):
         parser.error("the start date must not be after the end date")
 
-    # split up comma-separated string into list, ignoring empty items
-    args.exclusions = [x.strip() for x in re.split(r",", args.exclusions) if x.strip()]
+    # -x replaces the defaults, --extend-exclusions adds to whatever -x left
+    args.exclusions = split_exclusions(args.exclusions, args.extend_exclusions)
 
     # CLI-3: check the GitHub CLI before anything is created or cloned
     if args.github:
@@ -292,6 +358,7 @@ def main():
             exclusions=args.exclusions,
             verbose=args.verbose,
             clean=False if args.github else args.clean,
+            gitignore=not args.no_gitignore,  # FILT-8
         )
         if args.aggregate == aggregate.DAY:
             # OUT-7: rows for single days, each with its date

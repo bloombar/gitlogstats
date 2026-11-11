@@ -55,7 +55,7 @@ Repositories whose names are the same (e.g. two forks, `alice/project` and `bob/
 
 #### STAT-1 Commit count
 
-For each contributor, the number of non-merge commits they authored in the date range. Merge commits are counted separately (STAT-7), not as commits. Commits that change no files (empty commits) and commits that only touch excluded files (FILT-3) are not counted. The count does not depend on git's history simplification: commits are never hidden because of how the exclusions interact with merges.
+For each contributor, the number of non-merge commits they authored in the date range. Merge commits are counted separately (STAT-7), not as commits. Commits that change no files (empty commits) and commits that only touch excluded files (FILT-3, FILT-8) are not counted. The count does not depend on git's history simplification: commits are never hidden because of how the exclusions interact with merges.
 
 **Status:** Done
 
@@ -166,7 +166,7 @@ With `--github`, for each contributor, how many of their commits counted in `com
 
 #### FILT-3 File exclusions
 
-`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory and ignoring case (FILT-5). A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing. Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
+`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory and ignoring case (FILT-5). A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the default list (FILT-7), and `-x ""` excludes no patterns; `--extend-exclusions` adds to the list instead (FILT-6). Files ignored by the repository's `.gitignore` are excluded as well, whatever `-x` gives (FILT-8). Exclusions apply to commits, lines and files, but not to merges (STAT-7).
 
 **Status:** Done
 
@@ -179,6 +179,34 @@ By default, contributors with no activity in the date range are listed with zero
 #### FILT-5 Case-insensitive exclusions
 
 File exclusions (FILT-3) ignore the case of file and directory names, so `*.jpg` also excludes `IMG_0001.JPG` and `Photo.Jpg`, `package.json` also excludes `Package.JSON`, and `vendor` also excludes `Vendor/`. This applies to the default list and to patterns given with `-x`, on every operating system, whether or not the file system itself is case-sensitive.
+
+**Status:** Done
+
+#### FILT-6 Extend the default exclusions
+
+`--extend-exclusions` takes a comma-separated list in the same form as `-x/--exclusions` (FILT-3) and adds it to the exclusions instead of replacing them, so `--extend-exclusions "*.md"` excludes Markdown files as well as the default list. Combined with `-x`, it adds to the list given with `-x`: `-x "" --extend-exclusions "*.md"` excludes only Markdown files (and `.gitignore`d files, FILT-8). Surrounding spaces and empty items are ignored, and an empty list adds nothing. The option has no short form.
+
+**Status:** Done
+
+#### FILT-7 Default exclusion list
+
+Unless `-x` is given, these common generated, dependency and binary files are excluded:
+
+- package and lock files: `*.json` (which covers `package.json` and `package-lock.json`), `*.lock` (which covers `Pipfile.lock`, `yarn.lock`, `poetry.lock`, `uv.lock`, `Gemfile.lock`, `Cargo.lock` and `composer.lock`), `Pipfile`, `requirements.txt`, `pnpm-lock.yaml`, `go.sum`
+- dependency and build folders: `node_modules`, `.venv`, `venv`, `__pycache__`, `dist`, `build`
+- minified and generated web files: `*.min.js`, `*.min.css`, `*.map`
+- images: `*.jpg`, `*.jpeg`, `*.png`, `*.gif`, `*.svg`, `*.webp`, `*.ico`, `*.bmp`, `*.tiff`
+- documents, data and archives: `*.pdf`, `*.csv`, `*.zip`, `*.gz`, `*.tar`, `*.7z`, `*.rar`, `*.jar`
+- fonts and media: `*.woff`, `*.woff2`, `*.ttf`, `*.otf`, `*.mp3`, `*.mp4`, `*.mov`, `*.wav`
+- `.DS_Store`
+
+The list has no entry that another entry already covers. Like every exclusion, a folder name such as `build` also matches a file of that name. Before the patterns are used, the combined list from the defaults or `-x` and from `--extend-exclusions` is cleaned of duplicates, compared ignoring case and a trailing `/`, so `-x "*.json" --extend-exclusions "*.JSON, vendor, vendor/"` passes each pattern to git once.
+
+**Status:** Done
+
+#### FILT-8 Exclude files ignored by .gitignore
+
+Files that the analyzed branch's `.gitignore` files ignore are excluded too, even though they were committed (for example a `node_modules` folder committed before the `.gitignore` that lists it, or removed in a later commit). The rules are git's own, applied by `git check-ignore`: `.gitignore` files in subfolders, `!` negations and folder patterns behave as in git, and the user's global ignore file (`core.excludesFile`) is not used. The `.gitignore` files are those of the analyzed branch as checked out, so a file is excluded for the whole date range if the branch ignores it now. Only files not already excluded by a pattern are checked, so nothing is excluded twice, and a folder is excluded as a whole when every file in it that changed in the date range is ignored. This applies whatever `-x` and `--extend-exclusions` give; `--no-gitignore` turns it off, and `-x "" --no-gitignore` excludes nothing at all. `--verbose` lists the paths excluded this way.
 
 **Status:** Done
 

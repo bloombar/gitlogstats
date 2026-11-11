@@ -57,6 +57,7 @@ class GitLogsParser:
         verbose=False,
         clean=False,
         name=None,
+        gitignore=False,
     ):
         """
         Initialize the git logs parser for a given repository
@@ -68,6 +69,7 @@ class GitLogsParser:
         @param exclusions: a list of files to exclude from analysis.  wild cards accepted, e.g. ['foo.csv', '*.zip', '*.jpg']
         @param verbose: whether to output debugging info.  defaults to False.
         @param clean: remove contributors without any contribuition.  defaults to False.
+        @param gitignore: also exclude the files the checked-out .gitignore files ignore (FILT-8).  defaults to False.
         """
 
         self.repository = repo
@@ -79,6 +81,8 @@ class GitLogsParser:
         self.exclusions = exclusions if exclusions is not None else []
         self.verbose = verbose
         self.clean = clean
+        self.gitignore = gitignore
+        self._ignored_pathspecs = None  # FILT-8: worked out once, when first needed
 
         # go into the selected repository directory, if any
         if self.repository:
@@ -164,7 +168,7 @@ class GitLogsParser:
             "--",
             ".",
         ]
-        cmd += self.exclusion_pathspecs()
+        cmd += self.exclusion_pathspecs() + self.ignored_pathspecs()
         return cmd
 
     def exclusion_pathspecs(self):
@@ -182,6 +186,109 @@ class GitLogsParser:
                 pathspecs.append(f":(exclude,glob,icase)**/{pattern}")
                 pathspecs.append(f":(exclude,glob,icase)**/{pattern}/**")
         return pathspecs
+
+    def ignored_pathspecs(self):
+        """
+        FILT-8: git pathspecs that exclude the files .gitignore ignores, one
+        per path from ignored_paths. Worked out once per parser, since every
+        log command uses them.
+        @returns: a list of git pathspec arguments; empty if gitignore is off
+        """
+        if not self.gitignore:
+            return []
+        if self._ignored_pathspecs is None:
+            paths = self.ignored_paths()
+            if paths:
+                self.verboseprint(f"Excluded by .gitignore: {', '.join(paths)}")
+            # literal: the paths are exact names, not patterns to expand
+            self._ignored_pathspecs = [f":(exclude,literal){p}" for p in paths]
+        return self._ignored_pathspecs
+
+    def ignored_paths(self):
+        """
+        FILT-8: find the files changed in the date range that the checked-out
+        .gitignore files ignore, even though they were committed. Files that
+        the exclusion patterns already leave out are not looked at, so nothing
+        is excluded twice. git itself decides what is ignored, so nested
+        .gitignore files and '!' negations work as in git; the user's global
+        ignore file is switched off.
+        @returns: a sorted list of paths (files, or whole folders, see
+            collapse_ignored), relative to the top of the repository
+        """
+        # every path a counted commit added, changed or deleted; --no-renames
+        # lists both sides of a rename, -z keeps unusual names intact
+        cmd = [
+            "git",
+            "log",
+            "--full-history",
+            "--no-merges",
+            "--no-renames",
+            "--format=",
+            "--name-only",
+            "-z",
+            *self.date_range_args(),
+            "--",
+            ".",
+            *self.exclusion_pathspecs(),
+        ]
+        self.verboseprint(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        touched = {
+            os.fsdecode(path.lstrip(b"\n"))
+            for path in result.stdout.split(b"\0")
+            if path.strip(b"\n")
+        }
+        if not touched:
+            return []
+        check = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"core.excludesFile={os.devnull}",
+                "check-ignore",
+                "--no-index",
+                "--stdin",
+                "-z",
+            ],
+            input=b"".join(os.fsencode(path) + b"\0" for path in sorted(touched)),
+            capture_output=True,
+        )
+        # check-ignore exits with 1 when no path is ignored
+        if check.returncode not in (0, 1):
+            raise subprocess.CalledProcessError(
+                check.returncode, check.args, check.stdout, check.stderr
+            )
+        ignored = {os.fsdecode(path) for path in check.stdout.split(b"\0") if path}
+        return self.collapse_ignored(touched, ignored)
+
+    @staticmethod
+    def collapse_ignored(touched, ignored):
+        """
+        FILT-8: shorten the list of ignored files. A folder replaces its files
+        when every file in it that changed is ignored, so a committed
+        node_modules folder becomes one entry instead of thousands; this
+        keeps git's command line short and excludes exactly the same changes.
+        @param touched: every path changed in the date range
+        @param ignored: the paths among them that .gitignore ignores
+        @returns: a sorted list of ignored files and folders, outermost first
+        """
+        # for every folder: how many changed paths it holds, how many ignored
+        folders = {}
+        for path in touched:
+            parts = path.split("/")
+            for depth in range(1, len(parts)):
+                counts = folders.setdefault("/".join(parts[:depth]), [0, 0])
+                counts[0] += 1
+                counts[1] += path in ignored
+        collapsed = set()
+        for path in ignored:
+            parts = path.split("/")
+            for depth in range(1, len(parts) + 1):
+                prefix = "/".join(parts[:depth])
+                if depth == len(parts) or folders[prefix][0] == folders[prefix][1]:
+                    collapsed.add(prefix)  # the outermost fully ignored folder
+                    break
+        return sorted(collapsed)
 
     def merge_log_command(self, log_format=LOG_FORMAT):
         """

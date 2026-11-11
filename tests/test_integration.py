@@ -5,6 +5,7 @@ GitLogsParser and the gitlogstats command derive from them.
 
 import csv
 import datetime
+import fnmatch
 import io
 import json
 import os
@@ -17,7 +18,12 @@ import pytest
 
 from fake_gh import install_fake_gh
 from gitlogstats import GitLogsParser
-from gitlogstats.__main__ import distinct_labels, main
+from gitlogstats.__main__ import (
+    DEFAULT_EXCLUSIONS,
+    distinct_labels,
+    main,
+    split_exclusions,
+)
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1351,24 +1357,103 @@ class TestExclusionOption:
         assert result["Bob"]["commits"] == 1
         assert result["Carol"]["merges"] == 1
 
-    # one file for every entry in the documented default list (FILT-3), at the
-    # top level, in a subdirectory, and with its name in another case (FILT-5)
+    @pytest.mark.parametrize(
+        "argv,alice",
+        [
+            (["--extend-exclusions", "*.md"], (1, 1)),  # defaults plus *.md
+            (["--extend-exclusions", ""], (2, 9)),  # adds nothing
+            (["--extend-exclusions", " *.MD ,, "], (1, 1)),  # spaces, case
+            (["--extend-exclusions", "*.md,code.py"], (0, 0)),
+            (["-x", "", "--extend-exclusions", "*.md"], (3, 7)),  # only *.md
+            (["-x", "*.json", "--extend-exclusions", "*.md"], (2, 5)),
+            (["--extend-exclusions", "*.md", "-x", ""], (3, 7)),  # order is free
+        ],
+        ids=[
+            "adds-to-defaults",
+            "empty",
+            "messy",
+            "several",
+            "after-x-none",
+            "after-x-list",
+            "before-x",
+        ],
+    )
+    def test_extend_exclusions(
+        self, remote, tmp_path, monkeypatch, capsys, argv, alice
+    ):
+        result = self.run(monkeypatch, capsys, tmp_path, remote, *argv)
+        assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == alice
+        assert result["Bob"]["commits"] == 1
+        assert result["Carol"]["merges"] == 1
+
+    def test_extend_exclusions_has_no_short_form(
+        self, remote, tmp_path, monkeypatch, capsys
+    ):
+        with pytest.raises(SystemExit):
+            self.run(monkeypatch, capsys, tmp_path, remote, "-X", "*.md")
+        assert "unrecognized arguments: -X" in capsys.readouterr().err
+
+    # one file for every entry in the documented default list (FILT-7), and
+    # for the names it covers through a wider entry, at the top level, in a
+    # subdirectory, and with its name in another case (FILT-5)
     DEFAULT_EXCLUDED = [
+        # package and lock files, including those covered by *.json and *.lock
+        "a.json",
         "package.json",
         "package-lock.json",
-        "Pipfile",
+        "a.lock",
         "Pipfile.lock",
+        "yarn.lock",
+        "poetry.lock",
+        "uv.lock",
+        "Gemfile.lock",
+        "Cargo.lock",
+        "composer.lock",
+        "Pipfile",
         "requirements.txt",
+        "pnpm-lock.yaml",
+        "go.sum",
+        # folders
+        "node_modules/pkg/index.js",
+        ".venv/lib/site.py",
+        "venv/lib/site.py",
+        "__pycache__/code.cpython-311.pyc",
+        "dist/app.js",
+        "build/lib/app.py",
+        # minified and generated web files
+        "app.min.js",
+        "app.min.css",
+        "app.js.map",
+        # images
         "a.jpg",
+        "a.jpeg",
         "a.png",
         "a.gif",
         "a.svg",
+        "a.webp",
+        "a.ico",
+        "a.bmp",
+        "a.tiff",
+        # documents, data and archives
         "a.pdf",
+        "a.csv",
         "a.zip",
         "a.gz",
         "a.tar",
-        "a.csv",
-        "a.json",
+        "a.7z",
+        "a.rar",
+        "a.jar",
+        # fonts and media
+        "a.woff",
+        "a.woff2",
+        "a.ttf",
+        "a.otf",
+        "a.mp3",
+        "a.mp4",
+        "a.mov",
+        "a.wav",
+        # operating system files
+        ".DS_Store",
     ]
 
     @pytest.mark.parametrize(
@@ -1391,6 +1476,252 @@ class TestExclusionOption:
         assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == (1, 1)
         result = self.run(monkeypatch, capsys, tmp_path / "b", remote, "-x", "")
         assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == (2, 11)
+
+    def test_default_list_has_no_duplicates_or_covered_entries(self):
+        assert split_exclusions(",".join(DEFAULT_EXCLUSIONS)) == DEFAULT_EXCLUSIONS
+        wildcards = [p for p in DEFAULT_EXCLUSIONS if "*" in p]
+        for entry in DEFAULT_EXCLUSIONS:
+            for pattern in wildcards:
+                if pattern != entry:
+                    covered = fnmatch.fnmatch(entry.lower(), pattern.lower())
+                    assert not covered, f"{entry} is covered by {pattern}"
+
+    def test_default_list_leaves_ordinary_files_alone(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        remote = Repo(tmp_path / "remotes" / "proj")
+        for path in ["app.js", "style.css", "README.md", "builder.py", "src/a.java"]:
+            remote.write(path, lines(1))
+        remote.commit("Alice", "ordinary files")
+        result = self.run(monkeypatch, capsys, tmp_path, remote)
+        assert (result["Alice"]["files"], result["Alice"]["insertions"]) == (5, 5)
+
+    @pytest.mark.parametrize(
+        "lists,expected",
+        [
+            (["*.json", "*.JSON, vendor, vendor/"], ["*.json", "vendor"]),
+            ([" a , ,b,", ""], ["a", "b"]),
+            (["", ""], []),
+            (["build/", "Build"], ["build/"]),
+        ],
+    )
+    def test_split_exclusions_drops_duplicates(self, lists, expected):
+        assert split_exclusions(*lists) == expected
+
+    def test_duplicates_reach_git_once(self, remote, tmp_path, monkeypatch, capsys):
+        argv = ["-x", "*.md", "--extend-exclusions", "*.MD, notes.md/", "-v"]
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            sys, "argv", ["gitlogstats", "-r", remote.path, "-s", "01/01/2024", *argv]
+        )
+        main()
+        err = capsys.readouterr().err
+        # split on newlines only: the log format holds other separators
+        log = next(line for line in err.split("\n") if "--shortstat" in line)
+        assert log.count("exclude") == 4  # *.md and notes.md, each twice
+
+    def test_no_gitignore_counts_ignored_files(self, tmp_path, monkeypatch, capsys):
+        remote = Repo(tmp_path / "remotes" / "proj")
+        remote.write("code.py", lines(1))
+        remote.write("secrets/key.txt", lines(10))
+        remote.commit("Alice", "oops")
+        remote.write(".gitignore", "secrets/\n")
+        remote.commit("Alice", "ignore secrets")
+        for cwd in "abcd":
+            (tmp_path / cwd).mkdir()
+        alice = self.run(monkeypatch, capsys, tmp_path / "a", remote)["Alice"]
+        assert (alice["files"], alice["insertions"]) == (2, 2)
+        alice = self.run(monkeypatch, capsys, tmp_path / "b", remote, "--no-gitignore")
+        assert (alice["Alice"]["files"], alice["Alice"]["insertions"]) == (3, 12)
+        # -x "" excludes no patterns, but .gitignore still applies
+        alice = self.run(monkeypatch, capsys, tmp_path / "c", remote, "-x", "")
+        assert alice["Alice"]["insertions"] == 2
+        everything = ["-x", "", "--no-gitignore"]
+        alice = self.run(monkeypatch, capsys, tmp_path / "d", remote, *everything)
+        assert alice["Alice"]["insertions"] == 12
+
+    def test_verbose_lists_paths_excluded_by_gitignore(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        remote = Repo(tmp_path / "remotes" / "proj")
+        remote.write("code.py", lines(1))
+        remote.write("secrets/key.txt", lines(10))
+        remote.write(".gitignore", "secrets/\n")
+        remote.git("add", "-f", ".")
+        remote.commit("Alice", "add")
+        monkeypatch.chdir(tmp_path)
+        argv = ["gitlogstats", "-r", remote.path, "-s", "01/01/2024", "-v"]
+        monkeypatch.setattr(sys, "argv", argv)
+        main()
+        assert "Excluded by .gitignore: secrets\n" in capsys.readouterr().err
+
+
+# ─── Files ignored by .gitignore (FILT-8) ────────────────────────────────────
+
+
+class TestGitignore:
+    def ignored(self, repo, monkeypatch, **kwargs):
+        """The paths the parser excludes because .gitignore ignores them."""
+        monkeypatch.chdir(repo.path)
+        options = dict(start="01/01/2024", end="12/31/2024", username=None)
+        options.update(kwargs)
+        return GitLogsParser(repo=repo.path, gitignore=True, **options).ignored_paths()
+
+    def test_folder_committed_before_it_was_ignored(self, repo, monkeypatch):
+        repo.write("code.py", lines(2))
+        for name in ["a.js", "b.js", "deep/c.js"]:
+            repo.write(f"node_modules/pkg/{name}", lines(100))
+        repo.commit("Alice", "everything, node_modules too")
+        repo.write(".gitignore", "node_modules/\n")
+        repo.commit("Bob", "ignore node_modules")
+        result = stats(repo, monkeypatch, gitignore=True)
+        assert counts(result["Alice"]) == (1, 1, 2, 0)
+        assert counts(result["Bob"]) == (1, 1, 1, 0)
+        assert counts(stats(repo, monkeypatch)["Alice"]) == (1, 4, 302, 0)
+        assert self.ignored(repo, monkeypatch) == ["node_modules"]  # one entry
+
+    def test_removing_an_ignored_folder_is_not_counted(self, repo, monkeypatch):
+        repo.write("code.py", lines(2))
+        repo.write("venv/lib/site.py", lines(500))
+        repo.commit("Alice", "add")
+        shutil.rmtree(os.path.join(repo.path, "venv"))
+        repo.write(".gitignore", "venv/\n")
+        repo.commit("Bob", "remove venv, ignore it")
+        result = stats(repo, monkeypatch, gitignore=True)
+        assert counts(result["Bob"]) == (1, 1, 1, 0)  # the .gitignore line only
+        assert counts(stats(repo, monkeypatch)["Bob"]) == (1, 2, 1, 500)
+
+    def test_commit_touching_only_ignored_files_is_not_counted(self, repo, monkeypatch):
+        repo.write(".gitignore", "*.log\n")
+        repo.commit("Alice", "ignore logs")
+        repo.write("debug.log", lines(30))
+        repo.git("add", "-f", "debug.log")
+        repo.commit("Bob", "force-added log")
+        result = stats(repo, monkeypatch, gitignore=True)
+        assert "Bob" not in result or result["Bob"]["commits"] == 0
+        assert stats(repo, monkeypatch)["Bob"]["commits"] == 1
+
+    def test_negation_keeps_a_file(self, repo, monkeypatch):
+        repo.write(".gitignore", "*.log\n!keep.log\nbuild/*\n!build/README.txt\n")
+        for path in ["a.log", "keep.log", "build/a.o", "build/README.txt"]:
+            repo.write(path, lines(10))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == ["a.log", "build/a.o"]
+        alice = stats(repo, monkeypatch, gitignore=True)["Alice"]
+        assert counts(alice) == (1, 3, 24, 0)  # .gitignore, keep.log, README
+
+    def test_nested_gitignore_applies_to_its_folder(self, repo, monkeypatch):
+        repo.write("sub/.gitignore", "out/\n")
+        repo.write("sub/out/x.txt", lines(10))
+        repo.write("out/y.txt", lines(5))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == ["sub/out"]
+        assert counts(stats(repo, monkeypatch, gitignore=True)["Alice"]) == (
+            1,
+            2,
+            6,
+            0,
+        )
+
+    def test_folder_with_kept_files_is_listed_file_by_file(self, repo, monkeypatch):
+        repo.write(".gitignore", "*.o\n")
+        for path in ["src/a.o", "src/b.o", "src/main.c", "obj/c.o", "obj/d/e.o"]:
+            repo.write(path, lines(1))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == ["obj", "src/a.o", "src/b.o"]
+
+    def test_global_ignore_file_is_not_used(self, repo, monkeypatch, tmp_path):
+        global_ignore = tmp_path / "global-ignore"
+        global_ignore.write_text("*.py\n")
+        repo.git("config", "core.excludesFile", str(global_ignore))
+        repo.write("code.py", lines(2))
+        repo.git("add", "-f", ".")  # git add -A would honour the global file
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == []
+        assert counts(stats(repo, monkeypatch, gitignore=True)["Alice"]) == (
+            1,
+            1,
+            2,
+            0,
+        )
+
+    def test_files_excluded_by_a_pattern_are_not_listed_again(self, repo, monkeypatch):
+        repo.write(".gitignore", "*.json\nsecrets/\n")
+        repo.write("data.json", lines(10))
+        repo.write("secrets/key.txt", lines(10))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == ["data.json", "secrets"]
+        both = self.ignored(repo, monkeypatch, exclusions=["*.json"])
+        assert both == ["secrets"]
+
+    def test_unusual_file_names(self, repo, monkeypatch):
+        repo.write(".gitignore", "*.log\n")
+        for path in ["we ird/ä b.log", "-dash.log", "quote'd.log", "code.py"]:
+            repo.write(path, lines(3))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == [
+            "-dash.log",
+            "quote'd.log",
+            "we ird",
+        ]
+        alice = stats(repo, monkeypatch, gitignore=True)["Alice"]
+        assert counts(alice) == (1, 2, 4, 0)
+
+    def test_glob_characters_in_ignored_names_are_taken_literally(
+        self, repo, monkeypatch
+    ):
+        repo.write(".gitignore", "x\\[1\\].txt\n")
+        repo.write("x[1].txt", lines(10))
+        repo.write("x1.txt", lines(1))
+        repo.git("add", "-f", ".")
+        repo.commit("Alice", "add")
+        assert self.ignored(repo, monkeypatch) == ["x[1].txt"]
+        alice = stats(repo, monkeypatch, gitignore=True)["Alice"]
+        assert counts(alice) == (1, 2, 2, 0)  # .gitignore and x1.txt
+
+    def test_website_commits_follow_gitignore(self, repo, monkeypatch):
+        repo.write(".gitignore", "secrets/\n")
+        repo.commit("Alice", "ignore")
+        repo.write("secrets/key.txt", lines(10))
+        repo.git("add", "-f", ".")
+        repo.commit("Bob", "only an ignored file")
+        monkeypatch.chdir(repo.path)
+        parser = GitLogsParser(
+            repo=repo.path,
+            start="01/01/2024",
+            end="12/31/2024",
+            username=None,
+            gitignore=True,
+        )
+        assert [c["name"] for c in parser.committed_commits()] == ["Alice"]
+
+    def test_nothing_in_the_date_range(self, repo, monkeypatch):
+        repo.write("code.py", lines(1))
+        repo.commit("Alice", "add", date="2023-06-01 12:00:00")
+        assert self.ignored(repo, monkeypatch) == []
+
+    def test_check_ignore_failure_is_reported(self, repo, monkeypatch, tmp_path):
+        repo.write("code.py", lines(1))
+        repo.commit("Alice", "add")
+        bare = tmp_path / "bare.git"
+        subprocess.run(
+            ["git", "clone", "-q", "--bare", repo.path, str(bare)], check=True
+        )
+        monkeypatch.chdir(bare)
+        parser = GitLogsParser(
+            repo=str(bare),
+            start="01/01/2024",
+            end="12/31/2024",
+            username=None,
+            gitignore=True,
+        )
+        with pytest.raises(subprocess.CalledProcessError):
+            parser.ignored_paths()  # check-ignore needs a working tree
 
 
 # ─── GitHub pull requests (--github) ─────────────────────────────────────────
