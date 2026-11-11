@@ -80,6 +80,7 @@ Options after the four arguments are passed to `gitlogstats` unchanged:
 | `-u USER`                        | Report only this git username or email address                                            |
 | `-x "PATTERNS"`                  | Comma-separated files, patterns or directories to exclude; replaces the default list      |
 | `--extend-exclusions "PATTERNS"` | Like `-x`, but adds to the default list (or to the `-x` list) instead of replacing it     |
+| `--no-gitignore`                 | Count files the repository's `.gitignore` ignores (by default they are excluded)          |
 | `-b BRANCH`                      | Analyze this branch instead of each repository's default branch                           |
 | `-v`, `--verbose`                | Print debugging information to standard error                                             |
 
