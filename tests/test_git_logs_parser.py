@@ -631,19 +631,19 @@ class TestGitLogCommand:
         assert cmd[cmd.index("--") :] == [
             "--",
             ".",
-            ":(exclude,glob)**/*.jpg",
-            ":(exclude,glob)**/*.jpg/**",
-            ":(exclude,glob)**/foo.json",
-            ":(exclude,glob)**/foo.json/**",
+            ":(exclude,glob,icase)**/*.jpg",
+            ":(exclude,glob,icase)**/*.jpg/**",
+            ":(exclude,glob,icase)**/foo.json",
+            ":(exclude,glob,icase)**/foo.json/**",
         ]
 
     def test_directory_exclusions_cover_their_contents(self):
         cmd = make_parser(exclusions=["vendor/", " build "]).git_log_command()
         assert cmd[cmd.index("--") + 2 :] == [
-            ":(exclude,glob)**/vendor",
-            ":(exclude,glob)**/vendor/**",
-            ":(exclude,glob)**/build",
-            ":(exclude,glob)**/build/**",
+            ":(exclude,glob,icase)**/vendor",
+            ":(exclude,glob,icase)**/vendor/**",
+            ":(exclude,glob,icase)**/build",
+            ":(exclude,glob,icase)**/build/**",
         ]
 
     def test_no_exclusions_means_whole_tree(self):
