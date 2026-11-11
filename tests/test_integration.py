@@ -1351,6 +1351,42 @@ class TestExclusionOption:
         assert result["Bob"]["commits"] == 1
         assert result["Carol"]["merges"] == 1
 
+    @pytest.mark.parametrize(
+        "argv,alice",
+        [
+            (["--extend-exclusions", "*.md"], (1, 1)),  # defaults plus *.md
+            (["--extend-exclusions", ""], (2, 9)),  # adds nothing
+            (["--extend-exclusions", " *.MD ,, "], (1, 1)),  # spaces, case
+            (["--extend-exclusions", "*.md,code.py"], (0, 0)),
+            (["-x", "", "--extend-exclusions", "*.md"], (3, 7)),  # only *.md
+            (["-x", "*.json", "--extend-exclusions", "*.md"], (2, 5)),
+            (["--extend-exclusions", "*.md", "-x", ""], (3, 7)),  # order is free
+        ],
+        ids=[
+            "adds-to-defaults",
+            "empty",
+            "messy",
+            "several",
+            "after-x-none",
+            "after-x-list",
+            "before-x",
+        ],
+    )
+    def test_extend_exclusions(
+        self, remote, tmp_path, monkeypatch, capsys, argv, alice
+    ):
+        result = self.run(monkeypatch, capsys, tmp_path, remote, *argv)
+        assert (result["Alice"]["commits"], result["Alice"]["insertions"]) == alice
+        assert result["Bob"]["commits"] == 1
+        assert result["Carol"]["merges"] == 1
+
+    def test_extend_exclusions_has_no_short_form(
+        self, remote, tmp_path, monkeypatch, capsys
+    ):
+        with pytest.raises(SystemExit):
+            self.run(monkeypatch, capsys, tmp_path, remote, "-X", "*.md")
+        assert "unrecognized arguments: -X" in capsys.readouterr().err
+
     # one file for every entry in the documented default list (FILT-3), at the
     # top level, in a subdirectory, and with its name in another case (FILT-5)
     DEFAULT_EXCLUDED = [

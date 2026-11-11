@@ -166,7 +166,7 @@ With `--github`, for each contributor, how many of their commits counted in `com
 
 #### FILT-3 File exclusions
 
-`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory and ignoring case (FILT-5). A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing. Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
+`-x/--exclusions` takes a comma-separated list of file names, glob patterns or directories to leave out of the analysis, matched in any directory and ignoring case (FILT-5). A directory name (`vendor` or `vendor/`) excludes everything inside it, and a path pattern (`docs/*.md`) matches inside directories of that name. Surrounding spaces and empty items are ignored. The list replaces the defaults, and `-x ""` excludes nothing; `--extend-exclusions` adds to them instead (FILT-6). Exclusions apply to commits, lines and files, but not to merges (STAT-7). By default common generated and binary files are excluded: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv`, `*.json`.
 
 **Status:** Done
 
@@ -179,6 +179,12 @@ By default, contributors with no activity in the date range are listed with zero
 #### FILT-5 Case-insensitive exclusions
 
 File exclusions (FILT-3) ignore the case of file and directory names, so `*.jpg` also excludes `IMG_0001.JPG` and `Photo.Jpg`, `package.json` also excludes `Package.JSON`, and `vendor` also excludes `Vendor/`. This applies to the default list and to patterns given with `-x`, on every operating system, whether or not the file system itself is case-sensitive.
+
+**Status:** Done
+
+#### FILT-6 Extend the default exclusions
+
+`--extend-exclusions` takes a comma-separated list in the same form as `-x/--exclusions` (FILT-3) and adds it to the exclusions instead of replacing them, so `--extend-exclusions "*.md"` excludes Markdown files as well as the default list. Combined with `-x`, it adds to the list given with `-x`: `-x "" --extend-exclusions "*.md"` excludes only Markdown files. Surrounding spaces and empty items are ignored, and an empty list adds nothing. The option has no short form.
 
 **Status:** Done
 

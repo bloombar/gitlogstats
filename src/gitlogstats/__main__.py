@@ -158,6 +158,14 @@ def main():
         default=",".join(exclusions),
     )
     parser.add_argument(
+        "--extend-exclusions",
+        help="A comma-separated list of files, patterns or directories to exclude "
+        "in addition to the default list (or to the list given with -x), e.g. "
+        '--extend-exclusions "*.md, docs"',
+        metavar="EXCLUSIONS",
+        default="",
+    )
+    parser.add_argument(
         "-f",
         "--format",
         help="The format in which to output the results",
@@ -218,8 +226,13 @@ def main():
     ):
         parser.error("the start date must not be after the end date")
 
-    # split up comma-separated string into list, ignoring empty items
-    args.exclusions = [x.strip() for x in re.split(r",", args.exclusions) if x.strip()]
+    # split up the comma-separated strings into one list, ignoring empty items:
+    # -x replaces the defaults, --extend-exclusions adds to whatever -x left
+    args.exclusions = [
+        x.strip()
+        for x in re.split(r",", f"{args.exclusions},{args.extend_exclusions}")
+        if x.strip()
+    ]
 
     # CLI-3: check the GitHub CLI before anything is created or cloned
     if args.github:

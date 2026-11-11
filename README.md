@@ -28,9 +28,9 @@ The command `gitlogstats --help` shows the usage instructions:
 
 ```
 usage: gitlogstats [-h] (-r REPOSITORY | -rf REPOFILE) [-u USER] [-s START]
-                   [-e END] [-x EXCLUSIONS] [-f {csv,json,markdown}]
-                   [-b BRANCH] [-v] [-c] [-a {developer,repository,day}]
-                   [--github] [--clobber]
+                   [-e END] [-x EXCLUSIONS] [--extend-exclusions EXCLUSIONS]
+                   [-f {csv,json,markdown}] [-b BRANCH] [-v] [-c]
+                   [-a {developer,repository,day}] [--github] [--clobber]
 
 options:
   -h, --help            show this help message and exit
@@ -49,6 +49,11 @@ options:
                         directories to exclude, ignoring case, e.g.
                         --exclusions "foo.zip, *.jpg, vendor". Replaces the
                         default list; use "" to exclude nothing
+  --extend-exclusions EXCLUSIONS
+                        A comma-separated list of files, patterns or
+                        directories to exclude in addition to the default list
+                        (or to the list given with -x), e.g. --extend-
+                        exclusions "*.md, docs"
   -f {csv,json,markdown}, --format {csv,json,markdown}
                         The format in which to output the results
   -b BRANCH, --branch BRANCH
@@ -125,7 +130,7 @@ gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt
 
 ### Excluding files
 
-By default, common generated and binary files are left out of the analysis: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv` and `*.json`. Use `-x` to give your own comma-separated list instead. It replaces the default list rather than adding to it.
+By default, common generated and binary files are left out of the analysis: `package.json`, `package-lock.json`, `Pipfile`, `Pipfile.lock`, `requirements.txt`, `*.jpg`, `*.png`, `*.gif`, `*.svg`, `*.pdf`, `*.zip`, `*.gz`, `*.tar`, `*.csv` and `*.json`. Use `-x` to give your own comma-separated list instead. It replaces the default list rather than adding to it. To keep the defaults and exclude more, use `--extend-exclusions` instead.
 
 Each item can be a file name, a glob pattern or a directory, and is matched in any directory of the repository. A directory name, such as `vendor` or `vendor/`, excludes everything inside it. A path such as `docs/*.md` matches only inside directories with that name.
 
@@ -139,6 +144,18 @@ Exclude nothing:
 
 ```
 gitlogstats -rf repos.txt -x ""
+```
+
+Exclude Markdown files as well as the defaults:
+
+```
+gitlogstats -rf repos.txt --extend-exclusions "*.md"
+```
+
+`--extend-exclusions` adds to whatever `-x` gives, so this excludes only Markdown files:
+
+```
+gitlogstats -rf repos.txt -x "" --extend-exclusions "*.md"
 ```
 
 Excluded files are left out of the commit, line and file counts. A commit that only touches excluded files is not counted at all. Exclusions do not affect the merge count.
@@ -211,7 +228,7 @@ gitlogstats: --github needs the GitHub CLI (gh) to be signed in. Run 'gh auth lo
 
 **Empty versus zero.** A zero means GitHub was asked and the person has none. An empty value (`null` in JSON) means GitHub could not be asked for that repository: it is not on github.com, or the request failed (no network, rate limit, a private repository you cannot see). The git statistics are still reported, the reason is printed to standard error, and the other repositories carry on. A contributor with no GitHub account matched has an empty `github_username` and zero pull requests. A GitHub user who opened pull requests or pushed but has no commits is listed in a row of their own with an empty `username` and zero git statistics. When GitHub could not be asked, `git_email` is still filled in and `github_email` is empty. The emails come from the whole history of the branch, not only from commits in the date range.
 
-**Limits of pushes and website commits.** Pushes come from GitHub's repository activity record, which starts in September 2023: earlier pushes are not counted, however old the date range. A file edited on the website directly on the analyzed branch is recorded by GitHub as a push too, so it counts in both `pushes_to_default` and `web_commits`. Reading it works for any public repository you can see; for a private one you need access to it, and if GitHub refuses, the repository's GitHub columns are empty with the reason on standard error, as above. A push is credited to the GitHub user who pushed it, so a person who only pushes (and has no commits or pull requests in the range) still gets a row of their own. Pushes made while a tag or commit (not a branch) is checked out with `-b` are not counted. Website commits are recognised by GitHub being the committer, so commits made through GitHub's API, for example in the `github.dev` editor, are counted as website commits too, and so is the first commit GitHub creates when a repository is created on the website. Website commits follow `commits`: the same date range, exclusions (`-x`) and branch, credited to the commit's author and added up when names are combined into one row.
+**Limits of pushes and website commits.** Pushes come from GitHub's repository activity record, which starts in September 2023: earlier pushes are not counted, however old the date range. A file edited on the website directly on the analyzed branch is recorded by GitHub as a push too, so it counts in both `pushes_to_default` and `web_commits`. Reading it works for any public repository you can see; for a private one you need access to it, and if GitHub refuses, the repository's GitHub columns are empty with the reason on standard error, as above. A push is credited to the GitHub user who pushed it, so a person who only pushes (and has no commits or pull requests in the range) still gets a row of their own. Pushes made while a tag or commit (not a branch) is checked out with `-b` are not counted. Website commits are recognised by GitHub being the committer, so commits made through GitHub's API, for example in the `github.dev` editor, are counted as website commits too, and so is the first commit GitHub creates when a repository is created on the website. Website commits follow `commits`: the same date range, exclusions (`-x`, `--extend-exclusions`) and branch, credited to the commit's author and added up when names are combined into one row.
 
 **Matching GitHub users to git authors.** Each git author name is compared with the GitHub users active in the repository, trying these in order and stopping at the first that finds exactly one user:
 

@@ -72,15 +72,22 @@ Prints each student's statistics for one assignment, one row per student per rep
 
 Options after the four arguments are passed to `gitlogstats` unchanged:
 
-| Option                          | Effect                                                                               |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `-f csv\|json\|markdown`        | Output format (default `csv`)                                                        |
-| `-c`, `--clean`                 | Leave out contributors with no contributions in the period                           |
-| `-a developer\|repository\|day` | One row per student over all repositories, per repository, or per day with activity  |
-| `-u USER`                       | Report only this git username or email address                                       |
-| `-x "PATTERNS"`                 | Comma-separated files, patterns or directories to exclude; replaces the default list |
-| `-b BRANCH`                     | Analyze this branch instead of each repository's default branch                      |
-| `-v`, `--verbose`               | Print debugging information to standard error                                        |
+| Option                           | Effect                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `-f csv\|json\|markdown`         | Output format (default `csv`)                                                             |
+| `-c`, `--clean`                  | Leave out contributors with no contributions in the period                                |
+| `-a developer\|repository\|day`  | One row per student over all repositories, per repository, or per day with activity       |
+| `-u USER`                        | Report only this git username or email address                                            |
+| `-x "PATTERNS"`                  | Comma-separated files, patterns or directories to exclude; replaces the default list      |
+| `--extend-exclusions "PATTERNS"` | Like `-x`, but adds to the default list (or to the `-x` list) instead of replacing it     |
+| `-b BRANCH`                      | Analyze this branch instead of each repository's default branch                           |
+| `-v`, `--verbose`                | Print debugging information to standard error                                             |
+
+For example, to leave out Markdown files as well as the default list:
+
+```
+./assignment-score.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 --extend-exclusions "*.md" > scores.csv
+```
 
 The script always adds `--github` (pull request, push, website-commit and email columns, with each student's git names combined into one row) and `--clobber` (delete the clones afterwards), and sets the repositories and dates itself, so don't pass `-r`, `-rf`, `-s` or `-e`. It lists the matching repositories with `gh` into a temporary file, so an existing `repos.txt` is never touched. See the main [README](../../README.md) for what each column means.
 
