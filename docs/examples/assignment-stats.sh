@@ -10,8 +10,12 @@
 # Example:
 #   ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > stats.csv
 #   ./assignment-stats.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 -f markdown
+#   ./assignment-stats.sh software-students-fall2029 web-app-exercise- "09/01/2029 09:00" "10/16/2029 17:00" > stats.csv
 #
-# Dates are mm/dd/yyyy and both days are included. gitlogstats always runs
+# Dates are mm/dd/yyyy and both days are included. A date may be followed by
+# a 24-hour time, HH:MM or HH:MM:SS, quoted because of the space: the period
+# then starts or ends at that moment instead (an end time is included, to the
+# end of its minute when no seconds are given). gitlogstats always runs
 # with --github, so the GitHub columns are included. Any options after the four
 # arguments are passed to gitlogstats unchanged (e.g. -f json, -c).
 # The results go to standard output; progress messages go to standard error.
@@ -26,6 +30,7 @@ set -euo pipefail
 usage() {
   echo "usage: $(basename "$0") ORGANIZATION_NAME REPO_PREFIX START_DATE END_DATE [gitlogstats options...]" >&2
   echo "example: $(basename "$0") software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029" >&2
+  echo "    or:   $(basename "$0") software-students-fall2029 web-app-exercise- \"09/01/2029 09:00\" \"10/16/2029 17:00\"" >&2
 }
 
 if [ "$#" -lt 4 ]; then
@@ -40,10 +45,12 @@ START_DATE=$3
 END_DATE=$4
 shift 4 # anything left is passed to gitlogstats
 
-# check the dates before doing any work
+# check the dates' shape before doing any work; gitlogstats checks that they
+# are real dates and times, and that the start is not after the end
+DATE_PATTERN='^[0-9]{2}/[0-9]{2}/[0-9]{4}( [0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$'
 for date in "$START_DATE" "$END_DATE"; do
-  if ! [[ "$date" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}$ ]]; then
-    echo "error: '$date' is not a date in mm/dd/yyyy format" >&2
+  if ! [[ "$date" =~ $DATE_PATTERN ]]; then
+    echo "error: '$date' is not a date in mm/dd/yyyy format, optionally followed by a time in HH:MM or HH:MM:SS format" >&2
     usage
     exit 2
   fi

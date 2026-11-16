@@ -49,8 +49,8 @@ Scores every student on one assignment and prints the scores as CSV.
 | ------------------- | ------------------------------------------------------------- | ---------------------------- |
 | `ORGANIZATION_NAME` | The GitHub organization that holds the students' repositories | `software-students-fall2029` |
 | `REPO_PREFIX`       | The start of the repository names for this assignment         | `web-app-exercise-`          |
-| `START_DATE`        | First day of the period, `mm/dd/yyyy`                         | `09/01/2029`                 |
-| `END_DATE`          | Last day of the period, `mm/dd/yyyy` (included)               | `10/16/2029`                 |
+| `START_DATE`        | First day of the period, `mm/dd/yyyy`, with an optional time  | `09/01/2029`                 |
+| `END_DATE`          | Last day (included), `mm/dd/yyyy`, with an optional time      | `10/16/2029 17:00`           |
 | options             | Passed to `gitlogstats` (see [below](#assignment-statssh))    | `-c`                         |
 
 Example:
@@ -58,6 +58,14 @@ Example:
 ```bash
 ./assignment-score.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > web-app-exercise-scores.csv
 ```
+
+To start or end the period at a time of day, such as an assignment's deadline, add a 24-hour time after the date, `HH:MM` or `HH:MM:SS`, and quote the argument because of the space. The end time is included, to the end of its minute when no seconds are given, so this counts work up to and including 5:00 PM (5:00:59) on October 16:
+
+```bash
+./assignment-score.sh software-students-fall2029 web-app-exercise- "09/01/2029 09:00" "10/16/2029 17:00" > web-app-exercise-scores.csv
+```
+
+Dates with times need `gitlogstats` 1.11.0 or later in this directory's environment; run `pipenv update gitlogstats` if an older release reports the time as an invalid date.
 
 It runs `assignment-stats.sh` with the same arguments into a temporary CSV, runs `score-developers.ipynb` on that CSV, and prints the scores; the temporary files are deleted afterwards and the notebook is left unchanged. `-f` and `-a` are refused, because the notebook needs the default CSV layout. To change how scores are calculated, edit the settings in the notebook ([below](#settings)).
 
@@ -139,7 +147,7 @@ Statistics and scores hold students' names and email addresses. `.gitignore` kee
 
 | Message                                     | What to do                                                                                        |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `'...' is not a date in mm/dd/yyyy format`  | Write dates with two-digit month and day and a four-digit year, e.g. `09/01/2029`                 |
+| `'...' is not a date in mm/dd/yyyy format`  | Use two-digit month and day, a four-digit year and an optional 24-hour time: `"09/01/2029 17:00"` |
 | `'pipenv' is not installed`                 | `pip install --user pipenv`                                                                       |
 | `the GitHub CLI is not signed in`           | Run `gh auth login`                                                                               |
 | `no repositories in '...' start with '...'` | Check the organization name and prefix; the prefix is case-sensitive                              |

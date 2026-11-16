@@ -360,6 +360,82 @@ class TestDateRange:
         assert "Bob" not in result
 
 
+class TestDateTimes:
+    """FILT-9: -s and -e with a time of day, against commits on either side of it."""
+
+    @pytest.fixture
+    def timed(self, repo):
+        for i, date in enumerate(
+            [
+                "2024-03-15 08:59:59",  # a second before the start: excluded
+                "2024-03-15 09:00:00",  # the start: included
+                "2024-03-15 12:00:00",  # middle: included
+                "2024-03-15 17:00:59",  # last second of the end minute: included
+                "2024-03-15 17:01:00",  # after the end minute: excluded
+            ]
+        ):
+            repo.write(f"f{i}.txt", lines(i + 1))
+            repo.commit("Alice", f"commit {i}", date=date)
+        return repo
+
+    def test_times_limit_the_range_within_a_day(self, timed, monkeypatch):
+        alice = stats(
+            timed, monkeypatch, start="03/15/2024 09:00", end="03/15/2024 17:00"
+        )["Alice"]
+        assert counts(alice) == (3, 3, 2 + 3 + 4, 0)
+
+    def test_seconds_make_the_end_exact(self, timed, monkeypatch):
+        alice = stats(
+            timed, monkeypatch, start="03/15/2024 09:00:00", end="03/15/2024 17:00:58"
+        )["Alice"]
+        assert counts(alice) == (2, 2, 2 + 3, 0)
+
+    def test_a_single_second(self, timed, monkeypatch):
+        alice = stats(
+            timed,
+            monkeypatch,
+            start="03/15/2024 08:59:59",
+            end="03/15/2024 08:59:59",
+        )["Alice"]
+        assert counts(alice) == (1, 1, 1, 0)
+
+    def test_a_time_on_one_side_only(self, timed, monkeypatch):
+        # the end without a time still covers its whole day
+        alice = stats(timed, monkeypatch, start="03/15/2024 12:00", end="03/15/2024")
+        assert counts(alice["Alice"]) == (3, 3, 3 + 4 + 5, 0)
+        # the start without a time still begins at midnight
+        alice = stats(timed, monkeypatch, start="03/15/2024", end="03/15/2024 09:00")
+        assert counts(alice["Alice"]) == (2, 2, 1 + 2, 0)
+
+    def test_merges_respect_the_times(self, repo, monkeypatch):
+        repo.write("a.txt", lines(1))
+        repo.commit("Alice", "start", date="2024-03-15 08:00:00")
+        for name, when in [("early", "08:59:59"), ("late", "17:01:00")]:
+            repo.branch(name, "main")
+            repo.write(f"{name}.txt", lines(1))
+            repo.commit("Alice", name, date="2024-03-15 08:30:00")
+            repo.switch("main")
+            repo.merge("Bob", name, date=f"2024-03-15 {when}")
+        repo.branch("inside", "main")
+        repo.write("inside.txt", lines(1))
+        repo.commit("Alice", "inside", date="2024-03-15 08:30:00")
+        repo.switch("main")
+        repo.merge("Bob", "inside", date="2024-03-15 17:00:30")
+        result = stats(
+            repo, monkeypatch, start="03/15/2024 09:00", end="03/15/2024 17:00"
+        )
+        assert result["Bob"]["merges"] == 1
+
+    def test_rows_record_the_dates_and_times_given(self, timed, monkeypatch):
+        alice = stats(
+            timed, monkeypatch, start="03/15/2024 09:00", end="03/15/2024 17:00:59"
+        )["Alice"]
+        assert (alice["start_date"], alice["end_date"]) == (
+            "03/15/2024 09:00",
+            "03/15/2024 17:00:59",
+        )
+
+
 # ─── Exclusions ──────────────────────────────────────────────────────────────
 
 
@@ -633,6 +709,11 @@ class TestCommandLine:
             ["-s", "2024-01-01"],
             ["-e", "13/45/2024"],
             ["-s", "02/01/2024", "-e", "01/01/2024"],
+            ["-s", "01/01/2024 25:00"],
+            ["-e", "12/31/2024 5pm"],
+            # FILT-9: on the same day, a start time after the end time
+            ["-s", "01/01/2024 17:00", "-e", "01/01/2024 09:00"],
+            ["-s", "01/01/2024 09:00:01", "-e", "01/01/2024 09:00:00"],
         ],
     )
     def test_invalid_dates_are_rejected(
@@ -641,6 +722,47 @@ class TestCommandLine:
         with pytest.raises(SystemExit) as exc:
             self.run(monkeypatch, capsys, tmp_path, "-r", remotes[0].path, *argv)
         assert exc.value.code == 2
+
+    def test_invalid_time_message_shows_the_format(
+        self, remotes, tmp_path, monkeypatch, capsys
+    ):
+        with pytest.raises(SystemExit):
+            self.run(
+                monkeypatch,
+                capsys,
+                tmp_path,
+                "-r",
+                remotes[0].path,
+                "-e",
+                "1/1/2024 5pm",
+            )
+        assert "mm/dd/yyyy format, optionally followed by a 24-hour time" in (
+            capsys.readouterr().err
+        )
+
+    def test_dates_with_times_are_accepted_and_recorded(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # FILT-9: one minute, given as the same start and end, is a valid range
+        remote = Repo(tmp_path / "remotes" / "timed")
+        remote.write("a.txt", lines(1))
+        remote.commit("Alice", "in", date="2024-03-15 09:00:30")
+        remote.write("b.txt", lines(1))
+        remote.commit("Alice", "out", date="2024-03-15 09:01:00")
+        out = self.run(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            "-r",
+            remote.path,
+            "-s",
+            "03/15/2024 09:00",
+            "-e",
+            "03/15/2024 09:00",
+        )
+        assert out.splitlines()[1] == (
+            "Alice,remotes/timed,03/15/2024 09:00,03/15/2024 09:00,1,1,0,1,0"
+        )
 
 
 # ─── Repositories with the same name (REPO-6) ────────────────────────────────
@@ -2575,6 +2697,60 @@ class TestGitHub:
             "--paginate",
         ] in calls()
 
+    def test_times_limit_pull_requests_and_pushes(
+        self, widgets, tmp_path, monkeypatch, capsys
+    ):
+        # FILT-9: each GitHub event is filtered by its own time, to the second
+        widgets.write("a.txt", lines(1))
+        widgets.commit(
+            "adal99", "work", email="ada@example.com", date="2024-03-15 12:00:00"
+        )
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                pr("adal99", at(2024, 3, 15, 8, 59, 59)),  # opened before: no
+                pr("adal99", at(2024, 3, 15, 9, 0, 0)),  # opened at the start
+                pr(  # opened before, merged at the end of the last minute
+                    "adal99",
+                    at(2024, 3, 14),
+                    merged=at(2024, 3, 15, 17, 0, 59),
+                ),
+                pr(  # closed just after the end
+                    "adal99",
+                    at(2024, 3, 14),
+                    closed=at(2024, 3, 15, 17, 1, 0),
+                ),
+            ],
+            pushes=[
+                push("adal99", at(2024, 3, 15, 8, 59, 59)),
+                push("adal99", at(2024, 3, 15, 9, 0, 0)),
+                push("adal99", at(2024, 3, 15, 17, 0, 59)),
+                push("adal99", at(2024, 3, 15, 17, 1, 0)),
+            ],
+            contributors=["adal99"],
+        )
+        out, err = self.github(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            "-f",
+            "json",
+            "-s",
+            "03/15/2024 09:00",
+            "-e",
+            "03/15/2024 17:00",
+        )
+        row = self.rows_by_name(out)["adal99"]
+        assert err == ""
+        assert (row["commits"], row["pushes_to_default"]) == (1, 2)
+        assert tuple(row[c] for c in PR_COLUMNS) == (1, 1, 0, 0)
+        assert (row["start_date"], row["end_date"]) == (
+            "03/15/2024 09:00",
+            "03/15/2024 17:00",
+        )
+
     def test_pushes_are_credited_to_the_combined_row(
         self, widgets, tmp_path, monkeypatch, capsys
     ):
@@ -3288,6 +3464,25 @@ class TestAggregateByDay:
             "03/12/2024,0,0,0,0,1,1,1",
         ]
 
+    def test_times_limit_the_first_and_last_days(
+        self, repofile, tmp_path, monkeypatch, capsys
+    ):
+        # FILT-9: 03/11 keeps only what happened up to 09:00; 03/12 is outside
+        out = self.run(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            repofile,
+            "-a",
+            "day",
+            dates=["-s", "03/10/2024 23:59:59", "-e", "03/11/2024 09:00"],
+        )
+        assert out.splitlines() == [
+            DAY_HEADER,
+            "03/10/2024,1,3,0,1,0,1,1",
+            "03/11/2024,2,3,0,2,0,1,2",
+        ]
+
     def test_days_add_up_to_the_totals(self, repofile, tmp_path, monkeypatch, capsys):
         days = json.loads(
             self.run(monkeypatch, capsys, tmp_path, repofile, "-a", "day", "-f", "json")
@@ -3409,6 +3604,52 @@ class TestAggregateByDay:
             ("03/12/2024", 1),
             ("03/13/2024", 1),
         ]
+
+    def test_times_limit_github_counts_on_the_first_and_last_days(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # FILT-9: a pull request listed on the first or last day for one event
+        # in range must not have its other events that day counted
+        widgets = Repo(tmp_path / "remotes" / "widgets")
+        widgets.write("a.txt", lines(1))
+        widgets.commit("ada", "work", date="2024-03-11 12:00:00")
+        github_world(
+            tmp_path,
+            monkeypatch,
+            widgets,
+            prs=[
+                # opened before 09:00 on the first day, merged within the times
+                pr("adal99", at(2024, 3, 10, 8), merged=at(2024, 3, 10, 12)),
+                # opened late on the middle day, which is counted whole
+                pr("adal99", at(2024, 3, 11, 23)),
+                # opened within the times on the last day, closed after 17:00
+                pr("adal99", at(2024, 3, 12, 16), closed=at(2024, 3, 12, 18)),
+            ],
+            contributors=["adal99"],
+            pushes=[
+                push("adal99", at(2024, 3, 10, 8)),
+                push("adal99", at(2024, 3, 12, 17, 0, 59)),
+                push("adal99", at(2024, 3, 12, 17, 1, 0)),
+            ],
+        )
+        argv = ["-r", GITHUB_URL, "--github", "-f", "json"]
+        argv += ["-s", "03/10/2024 09:00", "-e", "03/12/2024 17:00"]
+        out, _ = run_github(monkeypatch, capsys, tmp_path, *argv, "-a", "day")
+        days = {
+            d["date"]: tuple(d[c] for c in PR_COLUMNS) + (d["pushes_to_default"],)
+            for d in json.loads(out)
+        }
+        assert days == {
+            "03/10/2024": (0, 1, 0, 0, 0),
+            "03/11/2024": (1, 0, 0, 0, 0),
+            "03/12/2024": (1, 0, 0, 0, 1),
+        }
+        # the days still add up to the totals printed without -a
+        plain = json.loads(run_github(monkeypatch, capsys, tmp_path, *argv)[0])
+        for column in PR_COLUMNS + ["pushes_to_default"]:
+            assert sum(d[column] for d in json.loads(out)) == sum(
+                r[column] or 0 for r in plain
+            ), column
 
     def test_unavailable_repository_has_empty_github_counts(
         self, tmp_path, monkeypatch, capsys

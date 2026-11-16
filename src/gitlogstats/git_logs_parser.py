@@ -10,6 +10,8 @@ import re
 import json
 import urllib.parse
 
+from .dates import range_end, range_start
+
 # Each commit's header in the git log output starts with this record separator,
 # followed by the hash, author name, and author email, separated by unit
 # separators. Control characters cannot appear in names or emails, and commit
@@ -63,8 +65,8 @@ class GitLogsParser:
         Initialize the git logs parser for a given repository
         @param repo: the path to the repository of interest.
         @param name: the repository name to report; defaults to the last part of repo (REPO-6: the clone's folder may be name-2)
-        @param start: the start date of interest, in standard US format, e.g. 01/01/2021. defaults to exactly 1 year ago.
-        @param end: the end date of interest, in standard US format, e.g. 12/31/2021.  defaults to today's date.
+        @param start: the start date of interest, in standard US format, e.g. 01/01/2021, optionally with a time, e.g. 01/01/2021 09:00 (FILT-9)
+        @param end: the end date of interest, in standard US format, e.g. 12/31/2021, optionally with a time, e.g. 12/31/2021 17:00:00 (FILT-9)
         @param username: an optional username of interest.  if not present, we report all contributing users
         @param exclusions: a list of files to exclude from analysis.  wild cards accepted, e.g. ['foo.csv', '*.zip', '*.jpg']
         @param verbose: whether to output debugging info.  defaults to False.
@@ -132,14 +134,12 @@ class GitLogsParser:
     def date_range_args(self):
         """
         Build the git log options that limit commits to the date range.
-        The range is inclusive: from the very start of the start date to the
-        very end of the end date.
+        The range is inclusive: from the start moment to the end moment, where
+        a date without a time covers the whole day (FILT-1, FILT-9).
         @returns: a list of git log arguments
         """
-        since = datetime.datetime.strptime(self.start, "%m/%d/%Y")
-        until = datetime.datetime.strptime(self.end, "%m/%d/%Y").replace(
-            hour=23, minute=59, second=59
-        )
+        since = range_start(self.start)
+        until = range_end(self.end)
         return [
             f"--since={since:%Y-%m-%d %H:%M:%S}",
             f"--until={until:%Y-%m-%d %H:%M:%S}",

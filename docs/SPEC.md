@@ -154,7 +154,7 @@ With `--github`, for each contributor, how many of their commits counted in `com
 
 #### FILT-1 Date range
 
-`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time. Defaults: one year ago until today. The output records the requested start and end dates on every row. With `--github`, each pull request and push count is filtered by its own timestamp in the same range (CLI-3).
+`-s/--start` and `-e/--end` (format `mm/dd/yyyy`) limit the analysis to commits whose commit date falls between the start of the start date and the end of the end date, inclusive, in local time; with a time of day after a date, the range starts or ends at that moment instead (FILT-9). Defaults: one year ago until today. The output records the requested start and end dates on every row. With `--github`, each pull request and push count is filtered by its own timestamp in the same range (CLI-3).
 
 **Status:** Done
 
@@ -207,6 +207,12 @@ The list has no entry that another entry already covers. Like every exclusion, a
 #### FILT-8 Exclude files ignored by .gitignore
 
 Files that the analyzed branch's `.gitignore` files ignore are excluded too, even though they were committed (for example a `node_modules` folder committed before the `.gitignore` that lists it, or removed in a later commit). The rules are git's own, applied by `git check-ignore`: `.gitignore` files in subfolders, `!` negations and folder patterns behave as in git, and the user's global ignore file (`core.excludesFile`) is not used. The `.gitignore` files are those of the analyzed branch as checked out, so a file is excluded for the whole date range if the branch ignores it now. Only files not already excluded by a pattern are checked, so nothing is excluded twice, and a folder is excluded as a whole when every file in it that changed in the date range is ignored. This applies whatever `-x` and `--extend-exclusions` give; `--no-gitignore` turns it off, and `-x "" --no-gitignore` excludes nothing at all. `--verbose` lists the paths excluded this way.
+
+**Status:** Done
+
+#### FILT-9 Times of day in the date range
+
+`-s/--start` and `-e/--end` (FILT-1) also accept a 24-hour time after the date, separated by a space: `mm/dd/yyyy HH:MM` or `mm/dd/yyyy HH:MM:SS` (e.g. `-e "10/16/2029 17:00"`, quoted in the shell because of the space). The range then starts at the start time and ends at the end time, both included and in local time. Each value covers everything up to the end of its last stated unit: a start time begins at its first second, an end time `HH:MM` includes that whole minute (`17:00` includes a commit at `17:00:59`), and `HH:MM:SS` ends at exactly that second. A value without a time keeps its FILT-1 meaning, so a time may be given on one side only. The time applies to everything the range filters: commits and merges, and with `--github` pull requests and pushes (CLI-3); with `-a day` (OUT-7) the first and last days count only what happened within the times. Hours run from `00` to `23`; 12-hour times (`5pm`) and other separators (`T`) are rejected, and so is a start after the end on the same day (CLI-2). The `start_date` and `end_date` columns record the values as given, time included.
 
 **Status:** Done
 
@@ -276,7 +282,7 @@ The `repository` column names each repository as `<owner>/<name>`: `<name>` as `
 
 #### CLI-2 Input validation
 
-Invalid dates, and a start date after the end date, are rejected with a usage error and exit status 2 instead of a stack trace.
+Invalid dates and times, and a start date (and time, FILT-9) after the end date, are rejected with a usage error and exit status 2 instead of a stack trace.
 
 **Status:** Done
 

@@ -42,8 +42,12 @@ options:
   -u USER, --user USER  The git username (or email address) to report. Default
                         is all contributing users
   -s START, --start START
-                        Start date in mm/dd/yyyy format
-  -e END, --end END     End date in mm/dd/yyyy format
+                        Start date in mm/dd/yyyy format, optionally with a
+                        24-hour time, e.g. "09/01/2029 09:00". Without a time,
+                        the day starts at midnight
+  -e END, --end END     End date in mm/dd/yyyy format, optionally with a
+                        24-hour time, e.g. "10/16/2029 17:00", which is
+                        included. Without a time, the whole day is included
   -x EXCLUSIONS, --exclusions EXCLUSIONS
                         A comma-separated list of files, patterns or
                         directories to exclude, ignoring case, e.g.
@@ -117,7 +121,7 @@ gitlogstats -u bloombar -rf repos.txt
 
 ### Custom date range
 
-By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively. Both dates are inclusive: all commits made from the start of the start date to the end of the end date (by commit date, in local time) are counted.
+By default, contributions from a year ago until today are analyzed. Use the `-s` and `-e` flags to specify a different start and end date, respectively. Both dates are inclusive: all commits made from the start of the start date to the end of the end date (by commit date, in local time) are counted. A date may also carry a time of day, [shown below](#times-of-day).
 
 Output the contributions to a single repository for a specific date range, inclusive.
 
@@ -129,6 +133,14 @@ The same, but to a batch of repositories listed in the `repos.txt` file:
 
 ```
 gitlogstats -s 11/15/2021 -e 12/15/2021 -rf repos.txt
+```
+
+#### Times of day
+
+Add a 24-hour time after a date (`HH:MM` or `HH:MM:SS`, quoted because of the space) to start or end the range at that moment, e.g. at an assignment's deadline. An end time is included, to the end of its minute when no seconds are given, so this counts commits from 9 AM on November 15 up to and including 5:00 PM (5:00:59) on December 15:
+
+```bash
+gitlogstats -s "11/15/2021 09:00" -e "12/15/2021 17:00" -rf repos.txt
 ```
 
 ### Excluding files
