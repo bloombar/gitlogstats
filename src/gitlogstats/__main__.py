@@ -7,6 +7,7 @@ import urllib.parse
 from . import GitLogsParser
 from . import aggregate
 from .clones import clone_dir_for, remove_clones
+from .dates import range_end, range_start
 from .git_logs_parser import FIELDNAMES
 from .github import (
     ACTIVITY_FIELDNAMES,
@@ -91,15 +92,17 @@ def split_exclusions(*lists):
 
 def valid_date(value):
     """
-    Check that a command-line date is in mm/dd/yyyy format.
+    Check that a command-line date is in mm/dd/yyyy format, optionally
+    followed by a 24-hour time, HH:MM or HH:MM:SS (FILT-9).
     @param value: the date as typed by the user
     @returns: the same date string, if valid
     """
     try:
-        datetime.datetime.strptime(value, "%m/%d/%Y")
+        range_start(value)
     except ValueError:
         raise argparse.ArgumentTypeError(
-            f"invalid date '{value}': use mm/dd/yyyy format"
+            f"invalid date '{value}': use mm/dd/yyyy format, optionally followed "
+            "by a 24-hour time, e.g. '10/16/2029 17:00'"
         )
     return value
 
@@ -189,14 +192,17 @@ def main():
     parser.add_argument(
         "-s",
         "--start",
-        help="Start date in mm/dd/yyyy format",
+        help="Start date in mm/dd/yyyy format, optionally with a 24-hour time, "
+        'e.g. "09/01/2029 09:00". Without a time, the day starts at midnight',
         default=str_last_year,
         type=valid_date,
     )  # default to one year ago
     parser.add_argument(
         "-e",
         "--end",
-        help="End date in mm/dd/yyyy format",
+        help="End date in mm/dd/yyyy format, optionally with a 24-hour time, "
+        'e.g. "10/16/2029 17:00", which is included. Without a time, the whole '
+        "day is included",
         default=str_today,
         type=valid_date,
     )  # default to today
@@ -279,9 +285,7 @@ def main():
     )
     args = parser.parse_args()
 
-    if datetime.datetime.strptime(args.start, "%m/%d/%Y") > datetime.datetime.strptime(
-        args.end, "%m/%d/%Y"
-    ):
+    if range_start(args.start) > range_end(args.end):
         parser.error("the start date must not be after the end date")
 
     # -x replaces the defaults, --extend-exclusions adds to whatever -x left

@@ -8,6 +8,7 @@ error; the rows are returned for the caller to print.
 
 import sys
 
+from .dates import range_end, range_start
 from .git_logs_parser import FIELDNAMES
 from .github import (
     GHOST_LOGIN,
@@ -129,6 +130,23 @@ def fetch(parser, identities, github_repo):
     }
 
 
+def day_bounds(day, start, end):
+    """
+    OUT-7, FILT-9: the part of the -s/-e range that falls on one day, so that
+    a time given with -s or -e also limits the first and last day's counts.
+    @param day: the day, mm/dd/yyyy
+    @param start: the -s value, mm/dd/yyyy, optionally with a time
+    @param end: the -e value, mm/dd/yyyy, optionally with a time
+    @returns: (start, end) for the day: -s on the first day and -e on the last
+        day, the whole day otherwise
+    """
+    date = range_start(day).date()
+    return (
+        start if range_start(start).date() == date else day,
+        end if range_end(end).date() == date else day,
+    )
+
+
 def tally(parser, rows, data, identities, start, end, branch, events=None):
     """
     Count the fetched GitHub activity in a date range and merge it into the
@@ -137,8 +155,8 @@ def tally(parser, rows, data, identities, start, end, branch, events=None):
     @param rows: git rows for the range, unfiltered
     @param data: the result of fetch
     @param identities: {author_name: {email: commit hash}} from get_identities
-    @param start: first day, mm/dd/yyyy
-    @param end: last day, mm/dd/yyyy
+    @param start: first day, mm/dd/yyyy, optionally with a time (FILT-9)
+    @param end: last day, mm/dd/yyyy, optionally with a time (FILT-9)
     @param branch: count only pull requests with this base branch, if given
     @param events: {"prs", "pushes", "commits"} limited to the range (OUT-7);
         defaults to everything in data (the whole -s/-e range)
@@ -291,8 +309,9 @@ def github_day_rows(parser, repo_url, identities, args):
                 days.setdefault(day, dict(none, commits=[]))["commits"].append(commit)
         for day, rows in parser.parse_days(days).items():
             events = days.get(day, none)
+            start, end = day_bounds(day, args.start, args.end)
             for row in tally(
-                parser, rows, data, identities, day, day, args.branch, events
+                parser, rows, data, identities, start, end, args.branch, events
             ):
                 result.append(dict(row, date=day))
     return select(result, args, matches, identities)

@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import urllib.parse
 
+from .dates import range_end, range_start
+
 # CLI-3: the extra output columns
 GITHUB_FIELDNAMES = [
     "github_username",
@@ -285,15 +287,13 @@ def _local_time(timestamp):
 def _range_test(start, end):
     """
     Build a test for whether a GitHub timestamp falls in the date range. The
-    range is inclusive local time, as in FILT-1.
-    @param start: first day, mm/dd/yyyy
-    @param end: last day, mm/dd/yyyy
+    range is inclusive local time, as in FILT-1 and FILT-9.
+    @param start: first day, mm/dd/yyyy, optionally with a time
+    @param end: last day, mm/dd/yyyy, optionally with a time
     @returns: a function taking a timestamp (or None) and returning a bool
     """
-    since = datetime.datetime.strptime(start, "%m/%d/%Y")
-    until = datetime.datetime.strptime(end, "%m/%d/%Y").replace(
-        hour=23, minute=59, second=59
-    )
+    since = range_start(start)
+    until = range_end(end)
 
     def in_range(timestamp):
         moment = _local_time(timestamp)
@@ -322,8 +322,8 @@ def events_by_day(prs, pushes, start, end, branch=None):
     events only.
     @param prs: the list from fetch_pull_requests
     @param pushes: the list from fetch_pushes
-    @param start: first day, mm/dd/yyyy
-    @param end: last day, mm/dd/yyyy
+    @param start: first day, mm/dd/yyyy, optionally with a time (FILT-9)
+    @param end: last day, mm/dd/yyyy, optionally with a time (FILT-9)
     @param branch: keep only pull requests with this base branch, if given
     @returns: {day (mm/dd/yyyy): {"prs": [...], "pushes": [...], "commits":
         []}}; a pull request is listed on each day it was opened, merged or
@@ -352,8 +352,8 @@ def count_pull_requests(prs, start, end, branch=None):
     STAT-8, STAT-9, STAT-10, STAT-12: count each user's pull requests in a date range.
     The range is inclusive local time, as in FILT-1.
     @param prs: the list from fetch_pull_requests
-    @param start: first day, mm/dd/yyyy
-    @param end: last day, mm/dd/yyyy
+    @param start: first day, mm/dd/yyyy, optionally with a time (FILT-9)
+    @param end: last day, mm/dd/yyyy, optionally with a time (FILT-9)
     @param branch: count only pull requests with this base branch, if given
     @returns: {login: {"prs_opened", "prs_merged", "prs_closed_unmerged",
         "prs_self_merged"}}
@@ -415,8 +415,8 @@ def count_pushes(pushes, start, end):
     """
     STAT-14: count each user's pushes in a date range (inclusive local time).
     @param pushes: the list from fetch_pushes
-    @param start: first day, mm/dd/yyyy
-    @param end: last day, mm/dd/yyyy
+    @param start: first day, mm/dd/yyyy, optionally with a time (FILT-9)
+    @param end: last day, mm/dd/yyyy, optionally with a time (FILT-9)
     @returns: {login: number of pushes}
     """
     in_range = _range_test(start, end)

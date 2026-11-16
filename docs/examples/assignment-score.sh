@@ -9,7 +9,10 @@
 #
 # Example:
 #   ./assignment-score.sh software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > scores.csv
+#   ./assignment-score.sh software-students-fall2029 web-app-exercise- "09/01/2029 09:00" "10/16/2029 17:00" > scores.csv
 #
+# Dates are mm/dd/yyyy, optionally followed by a 24-hour time (HH:MM or
+# HH:MM:SS, quoted because of the space); see assignment-stats.sh.
 # The arguments are the same as assignment-stats.sh's and are passed to it
 # unchanged, except that -f/--format and -a/--aggregate are not allowed: the
 # notebook needs the default CSV with one row per developer and repository.
@@ -26,6 +29,7 @@ set -euo pipefail
 usage() {
   echo "usage: $(basename "$0") ORGANIZATION_NAME REPO_PREFIX START_DATE END_DATE [gitlogstats options...]" >&2
   echo "example: $(basename "$0") software-students-fall2029 web-app-exercise- 09/01/2029 10/16/2029 > scores.csv" >&2
+  echo "    or:   $(basename "$0") software-students-fall2029 web-app-exercise- \"09/01/2029 09:00\" \"10/16/2029 17:00\" > scores.csv" >&2
 }
 
 if [ "$#" -lt 4 ]; then
