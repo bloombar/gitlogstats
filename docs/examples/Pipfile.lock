@@ -515,12 +515,12 @@
         },
         "gitlogstats": {
             "hashes": [
-                "sha256:c3d207b55db849c8ab63bdefc64e131d1fe599716ff6eecaaf0a854335db9047",
-                "sha256:e49b58a3d16520fcc90e2b957774a52210f2d7c2f6ddc9693d93edb4f92abe09"
+                "sha256:c57f49c3743eaeb1ffb34e312b706486e3e5d7718490e80a561068930e9bba6c",
+                "sha256:f851df93403109271ffccafa90f3d2d1832ba1671dcbf577b04d91cb74b13f56"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.7'",
-            "version": "==1.8.0"
+            "version": "==1.11.0"
         },
         "h11": {
             "hashes": [

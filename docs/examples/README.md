@@ -65,8 +65,6 @@ To start or end the period at a time of day, such as an assignment's deadline, a
 ./assignment-score.sh software-students-fall2029 web-app-exercise- "09/01/2029 09:00" "10/16/2029 17:00" > web-app-exercise-scores.csv
 ```
 
-Dates with times need `gitlogstats` 1.11.0 or later in this directory's environment; run `pipenv update gitlogstats` if an older release reports the time as an invalid date.
-
 It runs `assignment-stats.sh` with the same arguments into a temporary CSV, runs `score-developers.ipynb` on that CSV, and prints the scores; the temporary files are deleted afterwards and the notebook is left unchanged. `-f` and `-a` are refused, because the notebook needs the default CSV layout. To change how scores are calculated, edit the settings in the notebook ([below](#settings)).
 
 ## `assignment-stats.sh`
